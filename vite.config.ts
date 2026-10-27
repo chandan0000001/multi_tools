@@ -11,13 +11,12 @@ export default defineConfig({
     },
   },
   build: {
-    chunkSizeWarningLimit: 1200,
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
-          pdflib: ['pdf-lib'],
-          icons: ['lucide-react'],
+          pdflib: ['pdf-lib', 'pako'],
         },
       },
     },

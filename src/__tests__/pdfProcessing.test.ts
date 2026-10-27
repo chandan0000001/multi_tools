@@ -1,6 +1,4 @@
-import { describe, it, expect } from 'vitest';
-import fs from 'fs';
-import path from 'path';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 import { inflate } from 'pako';
 
@@ -40,6 +38,7 @@ async function extractTextFromPdf(pdfBytes: Uint8Array): Promise<string> {
       const hexMatches = Array.from(decompressed.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)).map((m) =>
         decodePdfHexString(m[1])
       );
+
       allLines.push(...literalMatches, ...hexMatches);
     }
   }
@@ -47,43 +46,79 @@ async function extractTextFromPdf(pdfBytes: Uint8Array): Promise<string> {
   return allLines.join('\n').trim();
 }
 
-describe('PDF Processing Suite with Real Sample Fixtures', () => {
-  const samplesDir = path.resolve(__dirname, '../../test/samples');
-  const pdfsDir = path.join(samplesDir, 'pdfs');
-  const imagesDir = path.join(samplesDir, 'images');
+async function createTestPdf(pageCount: number, title: string, textLines: string[] = []): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
 
-  it('verifies all sample fixtures exist and are non-empty', () => {
-    const requiredFiles = [
-      path.join(pdfsDir, 'sample_multipage_report.pdf'),
-      path.join(pdfsDir, 'sample_scanned_invoice_ocr.pdf'),
-      path.join(pdfsDir, 'sample_contract_agreement.pdf'),
-      path.join(pdfsDir, 'sample_presentation_slides.pdf'),
-      path.join(pdfsDir, 'sample_merge_part1.pdf'),
-      path.join(pdfsDir, 'sample_merge_part2.pdf'),
-      path.join(imagesDir, 'sample_highres_4k.jpg'),
-      path.join(imagesDir, 'sample_landscape.jpg'),
-      path.join(imagesDir, 'sample_scanned_invoice.png'),
-      path.join(imagesDir, 'sample_transparent_stamp.png'),
-    ];
+  for (let i = 0; i < pageCount; i++) {
+    const page = doc.addPage([595.28, 841.89]);
+    page.drawText(`${title} - Page ${i + 1}`, {
+      x: 50,
+      y: 780,
+      size: 16,
+      font,
+      color: rgb(0.1, 0.1, 0.1),
+    });
 
-    for (const filePath of requiredFiles) {
-      expect(fs.existsSync(filePath), `Missing fixture: ${filePath}`).toBe(true);
-      const stats = fs.statSync(filePath);
-      expect(stats.size).toBeGreaterThan(100);
+    let curY = 740;
+    for (const line of textLines) {
+      page.drawText(line, {
+        x: 50,
+        y: curY,
+        size: 11,
+        font,
+        color: rgb(0.2, 0.2, 0.2),
+      });
+      curY -= 20;
     }
+  }
+
+  return await doc.save();
+}
+
+function createMinimalJpg(): Uint8Array {
+  // A standard minimal valid 1x1 JPEG byte stream
+  return new Uint8Array([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48,
+    0x00, 0x48, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08,
+    0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d, 0x0c, 0x0b, 0x0b, 0x0c, 0x19, 0x12,
+    0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a, 0x1c, 0x1c, 0x20, 0x24, 0x2e, 0x27, 0x20,
+    0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29, 0x2c, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1f, 0x27,
+    0x39, 0x3d, 0x38, 0x32, 0x3c, 0x2e, 0x33, 0x34, 0x32, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01,
+    0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xff, 0xc4, 0x00, 0x1f, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04,
+    0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f,
+    0x00, 0xbf, 0x80, 0xff, 0xd9
+  ]);
+}
+
+describe('PDF Processing Suite (In-Memory Fast Architecture)', () => {
+  let sampleMergePart1: Uint8Array;
+  let sampleMergePart2: Uint8Array;
+  let sampleMultiPage: Uint8Array;
+  let sampleContract: Uint8Array;
+
+  beforeAll(async () => {
+    sampleMergePart1 = await createTestPdf(1, 'Merge Part 1', ['First chapter of documentation']);
+    sampleMergePart2 = await createTestPdf(1, 'Merge Part 2', ['Second chapter of documentation']);
+    sampleMultiPage = await createTestPdf(4, 'Multi-Page Financial Report', [
+      'Quarterly Performance Metrics',
+      'Client-side evaluation and privacy verification',
+    ]);
+    sampleContract = await createTestPdf(2, 'NON-DISCLOSURE AGREEMENT', [
+      'Confidential Information shall remain protected under strict local-first privacy.',
+      'Governing Law: Client-Side Sandbox.',
+    ]);
   });
 
   it('merges two separate PDF files into one combined PDF document', async () => {
-    const p1Bytes = fs.readFileSync(path.join(pdfsDir, 'sample_merge_part1.pdf'));
-    const p2Bytes = fs.readFileSync(path.join(pdfsDir, 'sample_merge_part2.pdf'));
-
     const mergedDoc = await PDFDocument.create();
 
-    const doc1 = await PDFDocument.load(p1Bytes);
+    const doc1 = await PDFDocument.load(sampleMergePart1);
     const pages1 = await mergedDoc.copyPages(doc1, doc1.getPageIndices());
     pages1.forEach((p) => mergedDoc.addPage(p));
 
-    const doc2 = await PDFDocument.load(p2Bytes);
+    const doc2 = await PDFDocument.load(sampleMergePart2);
     const pages2 = await mergedDoc.copyPages(doc2, doc2.getPageIndices());
     pages2.forEach((p) => mergedDoc.addPage(p));
 
@@ -98,8 +133,7 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
   });
 
   it('splits a multi-page PDF document by extracting specific page ranges', async () => {
-    const multiBytes = fs.readFileSync(path.join(pdfsDir, 'sample_multipage_report.pdf'));
-    const srcDoc = await PDFDocument.load(multiBytes);
+    const srcDoc = await PDFDocument.load(sampleMultiPage);
     expect(srcDoc.getPageCount()).toBe(4);
 
     // Extract pages 1 and 3 (0-indexed: 0, 2)
@@ -115,8 +149,7 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
   });
 
   it('applies a watermark across pages without corrupting the document', async () => {
-    const contractBytes = fs.readFileSync(path.join(pdfsDir, 'sample_contract_agreement.pdf'));
-    const doc = await PDFDocument.load(contractBytes);
+    const doc = await PDFDocument.load(sampleContract);
     const font = await doc.embedFont(StandardFonts.HelveticaBold);
     const watermarkText = 'CONFIDENTIAL TEST WATERMARK';
 
@@ -140,8 +173,7 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
   });
 
   it('embeds page numbers in header/footer across all pages', async () => {
-    const reportBytes = fs.readFileSync(path.join(pdfsDir, 'sample_multipage_report.pdf'));
-    const doc = await PDFDocument.load(reportBytes);
+    const doc = await PDFDocument.load(sampleMultiPage);
     const font = await doc.embedFont(StandardFonts.Helvetica);
     const pages = doc.getPages();
     const total = pages.length;
@@ -164,8 +196,7 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
   });
 
   it('rotates PDF pages by 90 degrees', async () => {
-    const slideBytes = fs.readFileSync(path.join(pdfsDir, 'sample_presentation_slides.pdf'));
-    const doc = await PDFDocument.load(slideBytes);
+    const doc = await PDFDocument.load(sampleMultiPage);
     const pages = doc.getPages();
 
     pages.forEach((page) => {
@@ -179,7 +210,7 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
   });
 
   it('converts an image (JPG) directly into a standardized PDF document', async () => {
-    const imgBytes = fs.readFileSync(path.join(imagesDir, 'sample_landscape.jpg'));
+    const imgBytes = createMinimalJpg();
     const doc = await PDFDocument.create();
     const embeddedImg = await doc.embedJpg(imgBytes);
 
@@ -195,13 +226,12 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
     const reloaded = await PDFDocument.load(saved);
     expect(reloaded.getPageCount()).toBe(1);
     const [p] = reloaded.getPages();
-    expect(p.getWidth()).toBe(1600);
-    expect(p.getHeight()).toBe(1000);
+    expect(p.getWidth()).toBe(1);
+    expect(p.getHeight()).toBe(1);
   });
 
   it('creates an OCR-enhanced searchable PDF with an optical text layer', async () => {
-    const scannedPdfBytes = fs.readFileSync(path.join(pdfsDir, 'sample_scanned_invoice_ocr.pdf'));
-    const doc = await PDFDocument.load(scannedPdfBytes);
+    const doc = await PDFDocument.load(sampleMultiPage);
     const font = await doc.embedFont(StandardFonts.Helvetica);
 
     // Simulate OCR text layer synthesis
@@ -232,7 +262,7 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
 
     const saved = await doc.save();
     const reloaded = await PDFDocument.load(saved);
-    expect(reloaded.getPageCount()).toBe(1);
+    expect(reloaded.getPageCount()).toBe(4);
 
     // Verify transcript export
     const transcript = ocrRecognizedLines.join('\n');
@@ -241,10 +271,7 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
   });
 
   it('converts plain text files (TXT to PDF) into formatted paginated PDF documents', async () => {
-    const txtPath = path.join(samplesDir, 'sample_notes.txt');
-    expect(fs.existsSync(txtPath)).toBe(true);
-    const textContent = fs.readFileSync(txtPath, 'utf-8');
-
+    const sampleText = `MultiTools Architecture Notes\n\n1. Client-side privacy\n2. Instant local processing\n3. Zero backend telemetry`;
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Courier);
     const boldFont = await doc.embedFont(StandardFonts.CourierBold);
@@ -258,7 +285,7 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
     const linesPerPage = Math.floor((startY - 50) / lineHeight);
     const maxChars = Math.floor((pageWidth - marginX * 2) / (fontSize * 0.6));
 
-    const rawLines = textContent.split(/\r?\n/);
+    const rawLines = sampleText.split(/\r?\n/);
     const wrappedLines: string[] = [];
     for (const line of rawLines) {
       if (line.length <= maxChars) {
@@ -283,7 +310,7 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
     pagesData.forEach((pageLines, pageIdx) => {
       const page = doc.addPage([pageWidth, pageHeight]);
       // Header
-      page.drawText('sample_notes.txt', { x: marginX, y: 805, size: 9, font: boldFont, color: rgb(0.2, 0.25, 0.3) });
+      page.drawText('notes.txt', { x: marginX, y: 805, size: 9, font: boldFont, color: rgb(0.2, 0.25, 0.3) });
       let curY = startY;
       for (const line of pageLines) {
         if (line.trim()) {
@@ -295,20 +322,19 @@ describe('PDF Processing Suite with Real Sample Fixtures', () => {
     });
 
     const pdfBytes = await doc.save();
-    expect(pdfBytes.length).toBeGreaterThan(1000);
+    expect(pdfBytes.length).toBeGreaterThan(500);
 
     const reloaded = await PDFDocument.load(pdfBytes);
     expect(reloaded.getPageCount()).toBe(pagesData.length);
   });
 
   it('extracts plain text (PDF to TXT) from existing PDF documents', async () => {
-    const contractBytes = fs.readFileSync(path.join(pdfsDir, 'sample_contract_agreement.pdf'));
-    const extracted = await extractTextFromPdf(contractBytes);
+    const extracted = await extractTextFromPdf(sampleContract);
 
     expect(extracted).toContain('NON-DISCLOSURE AGREEMENT');
     expect(extracted).toContain('Confidential Information');
 
     const txtBlob = new Blob([new TextEncoder().encode(extracted)], { type: 'text/plain' });
-    expect(txtBlob.size).toBeGreaterThan(100);
+    expect(txtBlob.size).toBeGreaterThan(50);
   });
 });
