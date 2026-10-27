@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Mail, MessageSquare, Send, CheckCircle2 } from 'lucide-react';
+import { Mail, MessageSquare, Send, CheckCircle2, ExternalLink } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { TelegramIcon } from '../components/layout/Footer';
 
 export const ContactPage: React.FC = () => {
   const { showToast } = useToast();
@@ -26,6 +27,39 @@ export const ContactPage: React.FC = () => {
         <p className="text-sm text-slate-600 dark:text-slate-400">
           Have an idea for a new local-first browser tool, or found a bug? We’d love to hear from you.
         </p>
+      </div>
+
+      {/* Direct Telegram Developer Contact */}
+      <div className="p-5 sm:p-6 rounded-3xl bg-slate-100/80 dark:bg-surface-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-[#229ED9] text-white flex items-center justify-center shadow-md shadow-sky-500/20 shrink-0">
+            <TelegramIcon className="w-6 h-6 fill-white" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                Direct Telegram Line
+              </h3>
+              <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                Active
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Chat directly with developer <strong className="text-slate-900 dark:text-white font-semibold">Chandan</strong> for quick feature requests & bug reports.
+            </p>
+          </div>
+        </div>
+        <a
+          href="https://t.me/coder_chandan"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#229ED9] hover:bg-[#1e8cc0] text-white text-xs font-semibold shadow-md shadow-sky-500/20 transition-all shrink-0 hover:scale-[1.02]"
+        >
+          <TelegramIcon className="w-3.5 h-3.5 fill-white" />
+          <span>@coder_chandan</span>
+          <ExternalLink className="w-3 h-3 text-white/80" />
+        </a>
       </div>
 
       {submitted ? (

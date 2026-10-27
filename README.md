@@ -184,6 +184,16 @@ MultiTools PRO operates under a strict **Zero-Telemetry Protocol**:
 
 ---
 
+## 👨‍💻 Developer & Community
+
+Created and maintained by **Chandan**:
+- **Telegram**: [@coder_chandan](https://t.me/coder_chandan)
+- **GitHub**: [@chandan0000001](https://github.com/chandan0000001)
+
+Feel free to reach out directly via Telegram for tool requests, feedback, or collaborations!
+
+---
+
 ## 📄 License
 
 Distributed under the [MIT License](LICENSE).
