@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldCheck, Heart, Wrench, Lock } from 'lucide-react';
+import { ShieldCheck, Heart, Lock } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
@@ -9,12 +9,16 @@ export const Footer: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
           {/* Brand & mission */}
           <div className="md:col-span-2 space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center text-white">
-                <Wrench className="w-4 h-4" />
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-slate-900 dark:bg-white flex items-center justify-center text-white dark:text-slate-950 shadow-sm">
+                <svg className="w-4 h-4 text-white dark:text-slate-950" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="currentColor" fillOpacity="0.9" />
+                  <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.65" />
+                </svg>
               </div>
-              <span className="font-bold text-base text-slate-900 dark:text-white">
-                Multi<span className="text-brand-500">_Tools</span>
+              <span className="font-extrabold text-base text-slate-900 dark:text-white tracking-tight">
+                MultiTools
               </span>
             </div>
             <p className="max-w-md text-xs leading-relaxed text-slate-500 dark:text-slate-400">

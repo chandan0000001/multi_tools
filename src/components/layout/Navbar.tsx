@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
-  Wrench,
+  LayoutGrid,
   Search,
   Moon,
   Sun,
@@ -9,7 +9,6 @@ import {
   Menu,
   X,
   Code2,
-  Sparkles,
   ShieldCheck,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
@@ -40,43 +39,52 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         {/* Brand */}
         <div className="flex items-center gap-6">
-          <Link to="/normalUser" className="flex items-center gap-2.5 group">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-brand-500/20 group-hover:scale-105 transition-transform">
-              <Wrench className="w-5 h-5" />
+          <Link to="/normalUser" className="flex items-center gap-3 group">
+            <div className="w-9 h-9 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center shadow-md shadow-slate-900/10 ring-1 ring-slate-900/5 group-hover:scale-105 transition-transform">
+              <svg className="w-5 h-5 text-white dark:text-slate-900" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="currentColor" fillOpacity="0.9" />
+                <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.65" />
+              </svg>
             </div>
             <div className="flex flex-col">
-              <span className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white flex items-center gap-1">
-                Multi<span className="text-brand-500">_Tools</span>
-              </span>
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium tracking-wide">
-                Browser-First Utility
+              <div className="flex items-center gap-1.5 leading-none">
+                <span className="font-extrabold text-[15px] tracking-tight text-slate-900 dark:text-white">
+                  MultiTools
+                </span>
+                <span className="text-[9px] font-bold tracking-wider uppercase px-1.5 py-0.5 rounded bg-slate-900 text-white dark:bg-white dark:text-slate-900">
+                  PRO
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-tight mt-0.5">
+                Client-Side Privacy Suite
               </span>
             </div>
           </Link>
 
           {/* Experience Switcher Tabs */}
-          <nav className="hidden md:flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-900/90 border border-slate-200/60 dark:border-slate-800/80 text-xs font-semibold">
+          <nav className="hidden md:flex items-center p-1 rounded-xl bg-slate-100/90 dark:bg-surface-900 border border-slate-200/90 dark:border-slate-800 text-xs font-semibold">
             <NavLink
               to="/normalUser"
               className={({ isActive }) =>
-                `flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all ${
+                `flex items-center gap-2 px-3.5 py-1.5 rounded-lg transition-all ${
                   isActive || (!isDevActive && isNormalActive)
-                    ? 'bg-white dark:bg-surface-800 text-brand-600 dark:text-brand-400 shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-surface-800 text-slate-900 dark:text-white shadow-sm border border-slate-200/80 dark:border-slate-700 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`
               }
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <LayoutGrid className="w-3.5 h-3.5" />
               <span>Everyday Tools</span>
             </NavLink>
 
             <NavLink
               to="/developers"
               className={({ isActive }) =>
-                `flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all ${
+                `flex items-center gap-2 px-3.5 py-1.5 rounded-lg transition-all ${
                   isActive
-                    ? 'bg-white dark:bg-surface-800 text-brand-600 dark:text-brand-400 shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-surface-800 text-slate-900 dark:text-white shadow-sm border border-slate-200/80 dark:border-slate-700 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`
               }
             >
@@ -146,14 +154,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
             to="/normalUser"
             onClick={() => setMobileMenuOpen(false)}
             className={({ isActive }) =>
-              `flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium ${
-                isActive
-                  ? 'bg-brand-500/10 text-brand-600 dark:text-brand-400'
+              `flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                isActive || (!isDevActive && isNormalActive)
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`
             }
           >
-            <Sparkles className="w-4 h-4" />
+            <LayoutGrid className="w-4 h-4" />
             <span>Everyday Tools</span>
           </NavLink>
 
@@ -161,9 +169,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
             to="/developers"
             onClick={() => setMobileMenuOpen(false)}
             className={({ isActive }) =>
-              `flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium ${
+              `flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                 isActive
-                  ? 'bg-brand-500/10 text-brand-600 dark:text-brand-400'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`
             }
