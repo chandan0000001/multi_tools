@@ -92,7 +92,7 @@ export const NormalUserCatalogue: React.FC = () => {
             to="/normalUser/pdf-tools"
             className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-md shadow-slate-900/10 shrink-0 transition-all"
           >
-            <span>Explore All 31 PDF Utilities</span>
+            <span>Explore All 33 PDF Utilities</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
         </div>

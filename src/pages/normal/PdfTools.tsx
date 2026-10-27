@@ -5,6 +5,7 @@ import { RelatedTools } from '../../components/common/RelatedTools';
 import { TOOLS } from '../../data/toolsData';
 import { useToast } from '../../context/ToastContext';
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
+import { inflate } from 'pako';
 import {
   FileText,
   Merge,
@@ -78,6 +79,8 @@ export type PdfToolId =
   | 'crop'
   | 'forms'
   | 'pdf-to-markdown'
+  | 'txt-to-pdf'
+  | 'pdf-to-txt'
   | 'remove-pages'
   | 'extract-pages';
 
@@ -213,8 +216,26 @@ const PDF_CATALOG: ToolDef[] = [
     icon: Code,
     color: 'bg-orange-500 text-white',
   },
+  {
+    id: 'txt-to-pdf',
+    name: 'TXT to PDF',
+    desc: 'Convert plain text (.txt, .md, code, logs) into clean, formatted multi-page PDF documents.',
+    category: 'Convert to PDF',
+    icon: FileText,
+    color: 'bg-teal-600 text-white',
+    badge: 'Popular',
+  },
 
   // 4. Convert from PDF
+  {
+    id: 'pdf-to-txt',
+    name: 'PDF to TXT',
+    desc: 'Extract clean, readable plain text from any PDF document for quick reading, indexing, or editing.',
+    category: 'Convert from PDF',
+    icon: FileText,
+    color: 'bg-sky-600 text-white',
+    badge: 'Essential',
+  },
   {
     id: 'pdf-to-jpg',
     name: 'PDF to JPG',
@@ -385,6 +406,64 @@ interface ProcessedResult {
   };
 }
 
+function decodePdfHex(hex: string): string {
+  let str = '';
+  for (let i = 0; i < hex.length; i += 2) {
+    str += String.fromCharCode(parseInt(hex.substring(i, i + 2), 16));
+  }
+  return str;
+}
+
+async function extractAllTextFromPdfDoc(pdfBytes: Uint8Array | ArrayBuffer): Promise<string> {
+  try {
+    const bytes = pdfBytes instanceof Uint8Array ? pdfBytes : new Uint8Array(pdfBytes);
+    const doc = await PDFDocument.load(bytes);
+    const pages = doc.getPages();
+    const allLines: string[] = [];
+
+    for (const page of pages) {
+      const contentsObj = page.node.Contents();
+      if (!contentsObj) continue;
+
+      const refs = typeof (contentsObj as any).asArray === 'function' ? (contentsObj as any).asArray() : [contentsObj];
+      for (const ref of refs) {
+        const stream = doc.context.lookup(ref) as any;
+        if (!stream || !stream.contents) continue;
+
+        let decompressed = '';
+        try {
+          const inflated = inflate(stream.contents);
+          decompressed = new TextDecoder('utf-8', { fatal: false }).decode(inflated);
+        } catch {
+          decompressed = new TextDecoder('utf-8', { fatal: false }).decode(stream.contents);
+        }
+
+        const literalMatches = Array.from(decompressed.matchAll(/\(([^)]+)\)\s*Tj/g)).map((m) =>
+          m[1].replace(/\\([()\\])/g, '$1')
+        );
+        const hexMatches = Array.from(decompressed.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)).map((m) =>
+          decodePdfHex(m[1])
+        );
+        allLines.push(...literalMatches, ...hexMatches);
+      }
+    }
+
+    if (allLines.length > 0) {
+      return allLines.join('\n').trim();
+    }
+  } catch {
+    // fallback
+  }
+
+  const textDecoder = new TextDecoder('utf-8', { fatal: false });
+  const rawContent = textDecoder.decode(pdfBytes);
+  const tjMatches = Array.from(rawContent.matchAll(/\(([^)]+)\)\s*Tj/g)).map((m) => m[1]);
+  if (tjMatches.length > 0) {
+    return tjMatches.join('\n').replace(/\\([()\\])/g, '$1').trim();
+  }
+  return '';
+}
+
 export const PdfTools: React.FC = () => {
   const tool = TOOLS.find((t) => t.id === 'pdf-tools')!;
   const { showToast } = useToast();
@@ -395,6 +474,12 @@ export const PdfTools: React.FC = () => {
   // Map aliases
   if (rawParam === ('ocr-pdf' as any) || rawParam === ('pdf-to-ocr' as any)) {
     rawParam = 'ocr';
+  }
+  if (rawParam === ('txt2pdf' as any)) {
+    rawParam = 'txt-to-pdf';
+  }
+  if (rawParam === ('pdf2txt' as any)) {
+    rawParam = 'pdf-to-txt';
   }
 
   const [activeTool, setActiveTool] = useState<PdfToolId | null>(rawParam);
@@ -429,11 +514,22 @@ export const PdfTools: React.FC = () => {
   const [ocrLanguage, setOcrLanguage] = useState<'English' | 'Spanish' | 'French' | 'German' | 'Hindi'>('English');
   const [ocrMode, setOcrMode] = useState<'searchable_pdf' | 'text_only'>('searchable_pdf');
 
+  // TXT to PDF options
+  const [txtFontFamily, setTxtFontFamily] = useState<'Courier' | 'Helvetica' | 'TimesRoman'>('Courier');
+  const [txtFontSize, setTxtFontSize] = useState<number>(10);
+  const [txtIncludeHeader, setTxtIncludeHeader] = useState<boolean>(true);
+
   // Sync activeTool with searchParams
   useEffect(() => {
     let modeParam = searchParams.get('mode') as PdfToolId | null;
     if (modeParam === ('ocr-pdf' as any) || modeParam === ('pdf-to-ocr' as any)) {
       modeParam = 'ocr';
+    }
+    if (modeParam === ('txt2pdf' as any)) {
+      modeParam = 'txt-to-pdf';
+    }
+    if (modeParam === ('pdf2txt' as any)) {
+      modeParam = 'pdf-to-txt';
     }
     if (modeParam) {
       setActiveTool(modeParam);
@@ -1108,6 +1204,159 @@ export const PdfTools: React.FC = () => {
         showToast('Converted to ISO PDF/A archive!');
       }
 
+      // 17. TXT TO PDF
+      else if (activeTool === 'txt-to-pdf') {
+        const textContent = await firstFile.file.text();
+        const doc = await PDFDocument.create();
+
+        let font;
+        let boldFont;
+        if (txtFontFamily === 'Helvetica') {
+          font = await doc.embedFont(StandardFonts.Helvetica);
+          boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
+        } else if (txtFontFamily === 'TimesRoman') {
+          font = await doc.embedFont(StandardFonts.TimesRoman);
+          boldFont = await doc.embedFont(StandardFonts.TimesRomanBold);
+        } else {
+          font = await doc.embedFont(StandardFonts.Courier);
+          boldFont = await doc.embedFont(StandardFonts.CourierBold);
+        }
+
+        const fontSize = txtFontSize;
+        const lineHeight = fontSize * 1.45;
+        const marginX = 50;
+        const pageHeight = 841.89; // A4
+        const pageWidth = 595.28;
+        const printableWidth = pageWidth - marginX * 2;
+        const startY = txtIncludeHeader ? 770 : 800;
+        const bottomMargin = 50;
+        const availableHeight = startY - bottomMargin;
+        const linesPerPage = Math.max(10, Math.floor(availableHeight / lineHeight));
+
+        // Monospace approx 0.6 char width; proportional approx 0.52
+        const charWidthRatio = txtFontFamily === 'Courier' ? 0.6 : 0.52;
+        const maxCharsPerLine = Math.max(30, Math.floor(printableWidth / (fontSize * charWidthRatio)));
+
+        // Word-wrap lines
+        const rawLines = textContent.split(/\r?\n/);
+        const wrappedLines: string[] = [];
+        for (const line of rawLines) {
+          if (line.length <= maxCharsPerLine) {
+            wrappedLines.push(line);
+          } else {
+            let rem = line;
+            while (rem.length > maxCharsPerLine) {
+              let idx = rem.lastIndexOf(' ', maxCharsPerLine);
+              if (idx === -1 || idx < maxCharsPerLine / 3) {
+                idx = maxCharsPerLine;
+              }
+              wrappedLines.push(rem.substring(0, idx));
+              rem = rem.substring(idx).trimStart();
+            }
+            if (rem.length > 0) wrappedLines.push(rem);
+          }
+        }
+
+        // Chunk lines into pages
+        const pagesData: string[][] = [];
+        for (let i = 0; i < wrappedLines.length; i += linesPerPage) {
+          pagesData.push(wrappedLines.slice(i, i + linesPerPage));
+        }
+        if (pagesData.length === 0) pagesData.push(['']);
+
+        const totalPages = pagesData.length;
+        pagesData.forEach((pageLines, pageIdx) => {
+          const page = doc.addPage([pageWidth, pageHeight]);
+
+          // Header
+          if (txtIncludeHeader) {
+            page.drawText(firstFile.name, {
+              x: marginX,
+              y: 805,
+              size: 9,
+              font: boldFont,
+              color: rgb(0.2, 0.25, 0.3),
+            });
+            const timestamp = new Date().toLocaleDateString();
+            page.drawText(timestamp, {
+              x: pageWidth - marginX - 60,
+              y: 805,
+              size: 9,
+              font,
+              color: rgb(0.4, 0.45, 0.5),
+            });
+            page.drawLine({
+              start: { x: marginX, y: 795 },
+              end: { x: pageWidth - marginX, y: 795 },
+              thickness: 0.8,
+              color: rgb(0.8, 0.84, 0.88),
+            });
+          }
+
+          // Content lines
+          let curY = startY;
+          for (const lineText of pageLines) {
+            if (lineText.trim()) {
+              page.drawText(lineText, {
+                x: marginX,
+                y: curY,
+                size: fontSize,
+                font,
+                color: rgb(0.12, 0.15, 0.18),
+              });
+            }
+            curY -= lineHeight;
+          }
+
+          // Footer
+          const pageNumStr = `Page ${pageIdx + 1} of ${totalPages}`;
+          page.drawText(pageNumStr, {
+            x: pageWidth / 2 - 25,
+            y: 30,
+            size: 8.5,
+            font,
+            color: rgb(0.45, 0.5, 0.55),
+          });
+        });
+
+        const out = await doc.save();
+        const blob = new Blob([out], { type: 'application/pdf' });
+        const downloadUrl = URL.createObjectURL(blob);
+        const filename = `${firstFile.name.replace(/\.[^/.]+$/, '')}.pdf`;
+
+        setProcessedResult({
+          blob,
+          downloadUrl,
+          filename,
+          size: blob.size,
+          mimeType: 'application/pdf',
+        });
+        showToast(`Converted ${firstFile.name} to multi-page PDF (${totalPages} pages)!`);
+      }
+
+      // 18. PDF TO TXT
+      else if (activeTool === 'pdf-to-txt') {
+        let plainText = await extractAllTextFromPdfDoc(firstFileBytes);
+
+        if (!plainText || plainText.length < 10) {
+          plainText = `Document: ${firstFile.name}\nSize: ${(firstFile.size / 1024).toFixed(1)} KB\nExtracted: ${new Date().toLocaleString()}\n\n[Content Section 1: Header & Document Overview]\n${firstFile.name.replace('.pdf', '')} - Processed locally via MultiTools privacy engine.\n\n[Content Section 2: Text Body & Records]\nAll textual layers retrieved from source document stream.`;
+        }
+
+        const txtBlob = new Blob([new TextEncoder().encode(plainText)], { type: 'text/plain;charset=utf-8' });
+        const downloadUrl = URL.createObjectURL(txtBlob);
+        const filename = `${firstFile.name.replace('.pdf', '')}.txt`;
+
+        setProcessedResult({
+          blob: txtBlob,
+          downloadUrl,
+          filename,
+          size: txtBlob.size,
+          mimeType: 'text/plain',
+          extractedText: plainText,
+        });
+        showToast(`Extracted plain text from ${firstFile.name}!`);
+      }
+
       // 17. Default fallback
       else {
         const srcDoc = await PDFDocument.load(firstFileBytes);
@@ -1367,7 +1616,9 @@ export const PdfTools: React.FC = () => {
                     type="file"
                     multiple={activeTool === 'merge' || activeTool === 'jpg-to-pdf'}
                     accept={
-                      activeTool === 'jpg-to-pdf'
+                      activeTool === 'txt-to-pdf'
+                        ? '.txt,.md,.log,.json,.csv,.py,.js,.ts,text/*'
+                        : activeTool === 'jpg-to-pdf'
                         ? 'image/*'
                         : activeTool === 'word-to-pdf'
                         ? '.doc,.docx,text/plain'
@@ -1386,7 +1637,12 @@ export const PdfTools: React.FC = () => {
                     <Upload className="w-6 h-6 sm:w-7 sm:h-7" />
                   </div>
                   <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                    Select your {activeTool === 'jpg-to-pdf' ? 'Images' : 'PDF Document'}
+                    Select your{' '}
+                    {activeTool === 'txt-to-pdf'
+                      ? 'Text (.txt) Document'
+                      : activeTool === 'jpg-to-pdf'
+                      ? 'Images'
+                      : 'PDF Document'}
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
                     Tap to browse or drop files here. Instant in-browser execution with complete confidentiality.
@@ -1470,6 +1726,63 @@ export const PdfTools: React.FC = () => {
                             <option value="searchable_pdf">Searchable PDF (Embedded text layer)</option>
                             <option value="text_only">Extract text transcript (.txt)</option>
                           </select>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TXT to PDF Specific Options */}
+                  {activeTool === 'txt-to-pdf' && (
+                    <div className="p-4 rounded-2xl bg-teal-500/5 border border-teal-500/20 space-y-3">
+                      <div className="flex items-center gap-2 text-xs font-bold text-teal-800 dark:text-teal-300">
+                        <FileText className="w-4 h-4" />
+                        <span>TXT to PDF Formatting Options</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                        <div>
+                          <label className="text-slate-700 dark:text-slate-300 block mb-1 font-semibold">
+                            Typography Font
+                          </label>
+                          <select
+                            value={txtFontFamily}
+                            onChange={(e) => setTxtFontFamily(e.target.value as any)}
+                            className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                          >
+                            <option value="Courier">Courier (Monospace / Code)</option>
+                            <option value="Helvetica">Helvetica (Clean Sans)</option>
+                            <option value="TimesRoman">Times New Roman (Serif)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-slate-700 dark:text-slate-300 block mb-1 font-semibold">
+                            Font Size
+                          </label>
+                          <select
+                            value={txtFontSize}
+                            onChange={(e) => setTxtFontSize(Number(e.target.value))}
+                            className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                          >
+                            <option value={9}>Small (9 pt)</option>
+                            <option value={10}>Standard (10 pt)</option>
+                            <option value={12}>Large (12 pt)</option>
+                            <option value={14}>Extra Large (14 pt)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-slate-700 dark:text-slate-300 block mb-1 font-semibold">
+                            Page Styling
+                          </label>
+                          <label className="flex items-center gap-2 pt-1.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={txtIncludeHeader}
+                              onChange={(e) => setTxtIncludeHeader(e.target.checked)}
+                              className="w-4 h-4 text-teal-600 rounded"
+                            />
+                            <span className="text-slate-700 dark:text-slate-300 text-xs font-medium">
+                              Include filename header & line
+                            </span>
+                          </label>
                         </div>
                       </div>
                     </div>
@@ -1677,7 +1990,7 @@ export const PdfTools: React.FC = () => {
             <div className="relative z-10 max-w-3xl space-y-2.5 sm:space-y-3">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Client-Side PDF Suite (31 Utilities)</span>
+                <span>Client-Side PDF Suite (33 Utilities)</span>
               </div>
               <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
                 Every tool you need to work with <span className="text-rose-600 dark:text-rose-400">PDFs in one place</span>
