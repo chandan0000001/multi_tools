@@ -116,7 +116,7 @@ export const RobotsSitemapTool: React.FC = () => {
           onClick={() => setActiveTab('robots')}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
             activeTab === 'robots'
-              ? 'bg-brand-600 text-white shadow-md shadow-brand-500/20'
+              ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
               : 'bg-white dark:bg-surface-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
@@ -128,7 +128,7 @@ export const RobotsSitemapTool: React.FC = () => {
           onClick={() => setActiveTab('sitemap')}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
             activeTab === 'sitemap'
-              ? 'bg-brand-600 text-white shadow-md shadow-brand-500/20'
+              ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
               : 'bg-white dark:bg-surface-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
@@ -152,7 +152,7 @@ export const RobotsSitemapTool: React.FC = () => {
               </button>
               <button
                 onClick={() => downloadFile(robotsTxt, 'robots.txt')}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand-600 hover:bg-brand-500 text-white shadow-sm"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-sm transition-colors"
               >
                 <Download className="w-3.5 h-3.5" /> Download
               </button>
@@ -163,7 +163,7 @@ export const RobotsSitemapTool: React.FC = () => {
             rows={12}
             value={robotsTxt}
             onChange={(e) => setRobotsTxt(e.target.value)}
-            className="w-full p-4 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 font-mono text-xs leading-relaxed focus:outline-none focus:border-brand-500 shadow-sm"
+            className="w-full p-4 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 font-mono text-xs leading-relaxed focus:outline-none focus:border-slate-400 shadow-sm"
           />
 
           {robotsErrors.length === 0 ? (
@@ -200,7 +200,7 @@ export const RobotsSitemapTool: React.FC = () => {
               </button>
               <button
                 onClick={() => downloadFile(sitemapXml, 'sitemap.xml')}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand-600 hover:bg-brand-500 text-white shadow-sm"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-sm transition-colors"
               >
                 <Download className="w-3.5 h-3.5" /> Download
               </button>
@@ -211,7 +211,7 @@ export const RobotsSitemapTool: React.FC = () => {
             rows={12}
             value={sitemapXml}
             onChange={(e) => setSitemapXml(e.target.value)}
-            className="w-full p-4 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 font-mono text-xs leading-relaxed focus:outline-none focus:border-brand-500 shadow-sm"
+            className="w-full p-4 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 font-mono text-xs leading-relaxed focus:outline-none focus:border-slate-400 shadow-sm"
           />
 
           {sitemapResult.valid ? (

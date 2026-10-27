@@ -117,7 +117,7 @@ export const UuidGeneratorTool: React.FC = () => {
         <div className="flex items-center gap-2 pt-2 sm:pt-0">
           <button
             onClick={generateUuids}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs shadow-md shadow-brand-500/20"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white font-semibold text-xs shadow-md transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Regenerate</span>
@@ -140,7 +140,7 @@ export const UuidGeneratorTool: React.FC = () => {
       </div>
 
       {/* UUIDs List */}
-      <div className="p-6 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
+      <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
         <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 text-xs text-slate-400">
           <span>Version 4 UUIDs (crypto.randomUUID)</span>
           <span>{uuids.length} item(s)</span>

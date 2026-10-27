@@ -237,13 +237,13 @@ export const MarkdownPreviewTool: React.FC = () => {
       <ToolHeader tool={tool} />
 
       {/* Action Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold">
             <button
               onClick={() => setViewMode('split')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
-                viewMode === 'split' ? 'bg-white dark:bg-surface-900 text-brand-500 shadow-sm' : 'text-slate-500'
+                viewMode === 'split' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm' : 'text-slate-500'
               }`}
             >
               <Columns className="w-3.5 h-3.5" />
@@ -252,7 +252,7 @@ export const MarkdownPreviewTool: React.FC = () => {
             <button
               onClick={() => setViewMode('edit')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
-                viewMode === 'edit' ? 'bg-white dark:bg-surface-900 text-brand-500 shadow-sm' : 'text-slate-500'
+                viewMode === 'edit' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm' : 'text-slate-500'
               }`}
             >
               <Edit3 className="w-3.5 h-3.5" />
@@ -261,7 +261,7 @@ export const MarkdownPreviewTool: React.FC = () => {
             <button
               onClick={() => setViewMode('preview')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
-                viewMode === 'preview' ? 'bg-white dark:bg-surface-900 text-brand-500 shadow-sm' : 'text-slate-500'
+                viewMode === 'preview' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm' : 'text-slate-500'
               }`}
             >
               <Eye className="w-3.5 h-3.5" />
@@ -298,7 +298,7 @@ export const MarkdownPreviewTool: React.FC = () => {
           </button>
           <button
             onClick={downloadHtml}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand-600 hover:bg-brand-500 text-white shadow-sm"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-sm transition-colors"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export HTML</span>
@@ -327,7 +327,7 @@ export const MarkdownPreviewTool: React.FC = () => {
               value={markdown}
               onChange={(e) => setMarkdown(e.target.value)}
               placeholder="Type markdown here..."
-              className="w-full h-[580px] max-h-[580px] p-4 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 font-mono text-xs leading-relaxed focus:outline-none focus:border-brand-500 shadow-sm overflow-y-auto resize-none"
+              className="w-full h-[380px] sm:h-[580px] max-h-[580px] p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 font-mono text-xs leading-relaxed focus:outline-none focus:border-slate-400 shadow-sm overflow-y-auto resize-none"
             />
           </div>
         )}
@@ -341,7 +341,7 @@ export const MarkdownPreviewTool: React.FC = () => {
             <div
               ref={previewRef}
               onScroll={handlePreviewScroll}
-              className="w-full h-[580px] max-h-[580px] p-6 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 overflow-y-auto shadow-sm"
+              className="w-full h-[380px] sm:h-[580px] max-h-[580px] p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 overflow-y-auto shadow-sm"
               dangerouslySetInnerHTML={{ __html: safeHtml }}
             />
           </div>

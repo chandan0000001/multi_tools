@@ -233,7 +233,7 @@ export const CalculatorTool: React.FC = () => {
               onClick={() => setMode(item.id as CalcMode)}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 mode === item.id
-                  ? 'bg-brand-600 text-white shadow-md shadow-brand-500/20'
+                  ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
                   : 'bg-white dark:bg-surface-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
@@ -247,7 +247,7 @@ export const CalculatorTool: React.FC = () => {
       {/* Mode 1: Standard Arithmetic Calculator */}
       {mode === 'standard' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 p-6 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="lg:col-span-2 p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             {/* Display screen */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 text-right space-y-1">
               <div className="text-xs font-mono text-slate-400 h-5 overflow-x-auto">
@@ -259,7 +259,7 @@ export const CalculatorTool: React.FC = () => {
             </div>
 
             {/* Keypad */}
-            <div className="grid grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-4 gap-2 sm:gap-2.5">
               {['C', '(', ')', '÷', '7', '8', '9', '×', '4', '5', '6', '-', '1', '2', '3', '+', '0', '.', 'DEL', '='].map((key) => {
                 const isOp = ['÷', '×', '-', '+', '='].includes(key);
                 const isAction = ['C', 'DEL', '(', ')'].includes(key);
@@ -267,9 +267,9 @@ export const CalculatorTool: React.FC = () => {
                   <button
                     key={key}
                     onClick={() => handleKeypad(key)}
-                    className={`py-3.5 rounded-xl text-base font-semibold transition-all active:scale-95 ${
+                    className={`py-3 sm:py-3.5 rounded-xl text-base font-semibold transition-all active:scale-95 ${
                       key === '='
-                        ? 'col-span-1 bg-brand-600 hover:bg-brand-500 text-white shadow-md shadow-brand-500/25'
+                        ? 'col-span-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white font-bold shadow-md'
                         : isOp
                         ? 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400'
                         : isAction
@@ -285,7 +285,7 @@ export const CalculatorTool: React.FC = () => {
           </div>
 
           {/* Calculation History */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
+          <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 mb-3">
                 <span className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">

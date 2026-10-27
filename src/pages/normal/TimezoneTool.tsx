@@ -133,7 +133,7 @@ export const TimezoneTool: React.FC = () => {
               onClick={() => setUse24Hour(false)}
               className={`px-3 py-1.5 rounded-lg transition-colors ${
                 !use24Hour
-                  ? 'bg-white dark:bg-surface-900 text-brand-600 dark:text-brand-400 shadow-sm'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
                   : 'text-slate-500'
               }`}
             >
@@ -143,7 +143,7 @@ export const TimezoneTool: React.FC = () => {
               onClick={() => setUse24Hour(true)}
               className={`px-3 py-1.5 rounded-lg transition-colors ${
                 use24Hour
-                  ? 'bg-white dark:bg-surface-900 text-brand-600 dark:text-brand-400 shadow-sm'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
                   : 'text-slate-500'
               }`}
             >
@@ -154,7 +154,7 @@ export const TimezoneTool: React.FC = () => {
 
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs shadow-md shadow-brand-500/20"
+          className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white font-semibold text-xs shadow-md transition-colors"
         >
           <Plus className="w-4 h-4" />
           <span>Add City / Zone</span>
@@ -166,7 +166,7 @@ export const TimezoneTool: React.FC = () => {
         {zones.map((item) => (
           <div
             key={item.id}
-            className="p-5 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between group hover:border-brand-500/40 transition-colors"
+            className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between group hover:border-slate-400 dark:hover:border-slate-600 transition-colors"
           >
             <div className="flex items-start justify-between">
               <div>
@@ -201,7 +201,7 @@ export const TimezoneTool: React.FC = () => {
       </div>
 
       {/* Meeting Overlap Finder Workspace */}
-      <div className="p-6 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+      <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
@@ -268,7 +268,8 @@ export const TimezoneTool: React.FC = () => {
                     }`}
                   >
                     {isWork ? <Sun className="w-3 h-3" /> : <Moon className="w-3 h-3" />}
-                    <span>{isWork ? 'In Office' : 'Outside Office'}</span>
+                    <span className="hidden sm:inline">{isWork ? 'In Office' : 'Outside Office'}</span>
+                    <span className="sm:hidden">{isWork ? 'Work' : 'Off'}</span>
                   </span>
                 </div>
               </div>

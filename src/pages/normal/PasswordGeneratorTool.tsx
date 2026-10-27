@@ -177,10 +177,10 @@ export const PasswordGeneratorTool: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Controls Configuration (Left) */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="p-6 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
+          <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 sm:space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <span className="text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
-                <Sliders className="w-4 h-4 text-brand-500" />
+                <Sliders className="w-4 h-4 text-slate-900 dark:text-white" />
                 <span>Generator Settings</span>
               </span>
               <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${strength.color}`}>
@@ -318,7 +318,7 @@ export const PasswordGeneratorTool: React.FC = () => {
 
             <button
               onClick={generateAll}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs shadow-md shadow-brand-500/20 transition-all"
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white font-semibold text-xs shadow-md transition-all"
             >
               <RefreshCw className="w-4 h-4" />
               <span>Regenerate Batch</span>

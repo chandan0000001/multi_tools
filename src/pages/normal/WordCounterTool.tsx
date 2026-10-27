@@ -151,7 +151,7 @@ export const WordCounterTool: React.FC = () => {
 
         <div className="p-4 rounded-2xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 text-center">
           <span className="text-[11px] font-medium text-slate-400">Reading Time</span>
-          <div className="text-2xl font-bold text-brand-600 dark:text-brand-400 mt-1">~{readingTimeMin}m</div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1">~{readingTimeMin}m</div>
         </div>
       </div>
 
@@ -187,20 +187,20 @@ export const WordCounterTool: React.FC = () => {
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Type or paste your essay, article, or code notes here..."
-            className="w-full p-4 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 text-sm leading-relaxed text-slate-900 dark:text-white focus:outline-none focus:border-brand-500 shadow-sm transition-colors"
+            className="w-full p-4 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 text-sm leading-relaxed text-slate-900 dark:text-white focus:outline-none focus:border-slate-400 shadow-sm transition-colors"
           />
         </div>
 
         {/* Readability & Keyword Breakdown (Right) */}
         <div className="lg:col-span-4 space-y-4">
-          <div className="p-6 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-              <BookOpen className="w-4 h-4 text-brand-500" />
+              <BookOpen className="w-4 h-4 text-slate-900 dark:text-white" />
               <h3 className="text-xs font-semibold text-slate-900 dark:text-white">Readability Grade</h3>
             </div>
 
             <div className="text-center py-2">
-              <div className="text-4xl font-extrabold text-brand-600 dark:text-brand-400 font-mono">
+              <div className="text-4xl font-extrabold text-slate-900 dark:text-white font-mono">
                 {flesch.score}
               </div>
               <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-1">

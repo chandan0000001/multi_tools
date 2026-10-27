@@ -39,14 +39,14 @@ export const DevelopersCatalogue: React.FC = () => {
   return (
     <div className="space-y-8 animate-in fade-in duration-200">
       {/* Dev Hero Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-slate-900 border border-slate-800 p-6 sm:p-8 shadow-xl">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+      <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-slate-900 border border-slate-800 p-4 sm:p-8 shadow-xl">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6">
           <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-mono font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
               <Terminal className="w-3.5 h-3.5" />
               <span>developer_workspace:~/v1.0</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-mono tracking-tight">
+            <h1 className="text-xl sm:text-3xl font-extrabold text-white font-mono tracking-tight">
               Developer Utilities & Diagnostics
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 leading-relaxed font-sans">

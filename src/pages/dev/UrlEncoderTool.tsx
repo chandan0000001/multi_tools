@@ -105,7 +105,7 @@ export const UrlEncoderTool: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleEncodeComponent}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-brand-600 hover:bg-brand-500 text-white"
+            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-sm transition-colors"
           >
             Encode Component
           </button>

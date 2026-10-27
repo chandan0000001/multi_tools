@@ -167,7 +167,7 @@ export const QrGeneratorTool: React.FC = () => {
               onClick={() => setMode(item.id as QrMode)}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 mode === item.id
-                  ? 'bg-brand-600 text-white shadow-md shadow-brand-500/20'
+                  ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
                   : 'bg-white dark:bg-surface-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
@@ -181,7 +181,7 @@ export const QrGeneratorTool: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Input Configuration (Left) */}
         <div className="lg:col-span-7 space-y-6">
-          <div className="p-6 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white pb-2 border-b border-slate-100 dark:border-slate-800">
               Content Payload Configuration
             </h3>
@@ -363,7 +363,7 @@ export const QrGeneratorTool: React.FC = () => {
           </div>
 
           {/* Visual Styling options */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white pb-2 border-b border-slate-100 dark:border-slate-800">
               Colors & Error Correction
             </h3>
@@ -434,16 +434,16 @@ export const QrGeneratorTool: React.FC = () => {
         </div>
 
         {/* Live QR Preview & Export (Right) */}
-        <div className="lg:col-span-5 flex flex-col items-center justify-center p-8 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 flex items-center justify-center shadow-inner">
-            <canvas ref={canvasRef} className="max-w-[260px] max-h-[260px] rounded-lg shadow-sm" />
+        <div className="lg:col-span-5 flex flex-col items-center justify-center p-4 sm:p-8 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5 sm:space-y-6">
+          <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-slate-50 dark:bg-surface-950 border border-slate-200 dark:border-slate-800 flex items-center justify-center shadow-inner">
+            <canvas ref={canvasRef} className="max-w-[190px] sm:max-w-[260px] max-h-[260px] rounded-lg shadow-sm" />
           </div>
 
           <div className="w-full space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={downloadPng}
-                className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs shadow-md shadow-brand-500/20"
+                className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white font-semibold text-xs shadow-md transition-colors"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Download PNG</span>

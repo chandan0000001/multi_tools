@@ -73,14 +73,14 @@ export const NormalUserCatalogue: React.FC = () => {
       {/* ======================================================== */}
       {/* TOP BUSINESS SHOWCASE: ALL-IN-ONE PDF SUITE (ON TOP)     */}
       {/* ======================================================== */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-rose-50/80 via-white to-indigo-50/70 dark:from-surface-900 dark:via-surface-900 dark:to-indigo-950/40 border border-slate-200/90 dark:border-slate-800 p-6 sm:p-10 shadow-sm">
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 pb-6 border-b border-slate-200/70 dark:border-slate-800/80">
+      <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-br from-rose-50/80 via-white to-indigo-50/70 dark:from-surface-900 dark:via-surface-900 dark:to-indigo-950/40 border border-slate-200/90 dark:border-slate-800 p-4 sm:p-10 shadow-sm">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 sm:gap-6 pb-5 sm:pb-6 border-b border-slate-200/70 dark:border-slate-800/80">
           <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+            <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
               <FileText className="w-3.5 h-3.5" />
               <span>Featured PDF Productivity Suite</span>
             </div>
-            <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+            <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
               Professional PDF Tools, <span className="text-rose-600 dark:text-rose-400">100% In Your Browser</span>
             </h1>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
@@ -92,7 +92,7 @@ export const NormalUserCatalogue: React.FC = () => {
             to="/normalUser/pdf-tools"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-md shadow-slate-900/10 shrink-0 transition-all"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl sm:rounded-2xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-md shadow-slate-900/10 shrink-0 transition-all"
           >
             <span>Explore All 33 PDF Utilities</span>
             <ArrowRight className="w-4 h-4" />
@@ -100,11 +100,11 @@ export const NormalUserCatalogue: React.FC = () => {
         </div>
 
         {/* Quick Access PDF Cards Carousel / Grid */}
-        <div className="pt-6">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-3">
+        <div className="pt-4 sm:pt-6">
+          <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2.5 sm:mb-3">
             Quick Actions
           </span>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 sm:gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3">
             {TOP_PDF_ACTIONS.map((item) => {
               const Icon = item.icon;
               return (
@@ -113,16 +113,16 @@ export const NormalUserCatalogue: React.FC = () => {
                   to={`/normalUser/pdf-tools?mode=${item.id}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="premium-card group p-3.5 rounded-2xl bg-white dark:bg-surface-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-sm hover:border-rose-500/50 flex flex-col items-center text-center justify-between"
+                  className="premium-card group p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-white dark:bg-surface-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-sm hover:border-rose-500/50 flex flex-col items-center text-center justify-between"
                 >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm mb-2 ${item.color}`}>
-                    <Icon className="w-5 h-5" />
+                  <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shadow-sm mb-1.5 sm:mb-2 ${item.color}`}>
+                    <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
                   </div>
                   <div>
                     <span className="font-bold text-xs text-slate-900 dark:text-white group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors block">
                       {item.name}
                     </span>
-                    <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">
+                    <span className="text-[9px] sm:text-[10px] text-slate-400 leading-tight block mt-0.5 line-clamp-1">
                       {item.desc}
                     </span>
                   </div>
@@ -212,7 +212,7 @@ export const NormalUserCatalogue: React.FC = () => {
                 setSelectedCategory('All');
                 setLocalOnly(false);
               }}
-              className="mt-4 px-4 py-2 text-xs font-semibold rounded-xl bg-brand-600 text-white hover:bg-brand-500"
+              className="mt-4 px-4 py-2 text-xs font-semibold rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white transition-colors"
             >
               Reset Filters
             </button>

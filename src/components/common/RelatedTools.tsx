@@ -20,7 +20,7 @@ export const RelatedTools: React.FC<RelatedToolsProps> = ({ currentTool }) => {
   return (
     <div className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800">
       <div className="flex items-center gap-2 mb-4">
-        <Sparkles className="w-4 h-4 text-brand-500" />
+        <Sparkles className="w-4 h-4 text-slate-900 dark:text-white" />
         <h2 className="text-base font-semibold text-slate-900 dark:text-white">Related Tools</h2>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

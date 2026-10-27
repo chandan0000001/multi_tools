@@ -1593,8 +1593,8 @@ export const PdfTools: React.FC = () => {
           {/* COMPLETION / SUCCESS DOWNLOAD SCREEN                     */}
           {/* ======================================================== */}
           {processedResult ? (
-            <div className="p-6 sm:p-12 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-800 shadow-xl text-center space-y-6 animate-in zoom-in-95 duration-200">
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto shadow-inner">
+            <div className="p-4 sm:p-12 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-800 shadow-xl text-center space-y-5 sm:space-y-6 animate-in zoom-in-95 duration-200">
+              <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-2xl sm:rounded-3xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto shadow-inner">
                 <CheckCircle2 className="w-10 h-10 sm:w-12 sm:h-12" />
               </div>
 
@@ -1703,17 +1703,17 @@ export const PdfTools: React.FC = () => {
             /* Active Tool Config & Upload Interface */
             <div className="space-y-6">
               {/* Tool Header Card */}
-              <div className="p-5 sm:p-7 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3.5">
-                  <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shadow-md shrink-0 ${currentToolDef.color}`}>
-                    <currentToolDef.icon className="w-6 h-6 sm:w-7 sm:h-7" />
+              <div className="p-4 sm:p-7 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5 sm:gap-4">
+                <div className="flex items-center gap-3 sm:gap-3.5">
+                  <div className={`w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-md shrink-0 ${currentToolDef.color}`}>
+                    <currentToolDef.icon className="w-5 h-5 sm:w-7 sm:h-7" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+                      <h2 className="text-lg sm:text-2xl font-extrabold text-slate-900 dark:text-white">
                         {currentToolDef.name}
                       </h2>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-500/10 text-brand-600 dark:text-brand-400 border border-brand-500/20">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                         {currentToolDef.category}
                       </span>
                     </div>
@@ -1723,7 +1723,7 @@ export const PdfTools: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 self-start sm:self-auto">
+                <div className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 self-start sm:self-auto">
                   <ShieldCheck className="w-4 h-4" />
                   <span>100% In-Browser</span>
                 </div>
@@ -1788,7 +1788,7 @@ export const PdfTools: React.FC = () => {
                 /* Standard Drag & Drop File Area */
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-brand-500 dark:hover:border-brand-500 rounded-3xl p-6 sm:p-12 text-center cursor-pointer bg-white dark:bg-surface-900/50 shadow-sm active:scale-[0.99] transition-all"
+                  className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-500 rounded-2xl sm:rounded-3xl p-5 sm:p-12 text-center cursor-pointer bg-white dark:bg-surface-900/50 shadow-sm active:scale-[0.99] transition-all"
                 >
                   <input
                     ref={fileInputRef}
@@ -1812,7 +1812,7 @@ export const PdfTools: React.FC = () => {
                     onChange={handleFileUpload}
                     className="hidden"
                   />
-                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-brand-500/10 text-brand-600 dark:text-brand-400 flex items-center justify-center mx-auto mb-3">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center justify-center mx-auto mb-3 shadow-2xs">
                     <Upload className="w-6 h-6 sm:w-7 sm:h-7" />
                   </div>
                   <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
@@ -1831,7 +1831,7 @@ export const PdfTools: React.FC = () => {
 
               {/* Uploaded Files & Specific Controls */}
               {(uploadedFiles.length > 0 || capturedScans.length > 0) && (
-                <div className="p-5 sm:p-8 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
+                <div className="p-4 sm:p-8 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 sm:space-y-5">
                   {uploadedFiles.length > 0 && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -1990,28 +1990,30 @@ export const PdfTools: React.FC = () => {
                         </div>
 
                         {/* Mode Switcher Tabs */}
-                        <div className="inline-flex p-1 rounded-xl bg-slate-200/80 dark:bg-slate-800 border border-slate-300/60 dark:border-slate-700 text-xs font-semibold self-start sm:self-auto">
+                        <div className="grid grid-cols-3 sm:flex p-1 rounded-xl bg-slate-200/80 dark:bg-slate-800 border border-slate-300/60 dark:border-slate-700 text-xs font-semibold w-full sm:w-auto text-center">
                           <button
                             type="button"
                             onClick={() => setSplitTabMode('visual')}
-                            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                            className={`px-2 sm:px-3 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 text-[11px] sm:text-xs ${
                               splitTabMode === 'visual'
                                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-bold'
                                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                             }`}
                           >
-                            <span>Visual Page Picker</span>
+                            <span className="hidden sm:inline">Visual Page Picker</span>
+                            <span className="sm:hidden">Visual Picker</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => setSplitTabMode('range')}
-                            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                            className={`px-2 sm:px-3 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 text-[11px] sm:text-xs ${
                               splitTabMode === 'range'
                                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-bold'
                                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                             }`}
                           >
-                            <span>Custom Range</span>
+                            <span className="hidden sm:inline">Custom Range</span>
+                            <span className="sm:hidden">Page Range</span>
                           </button>
                           <button
                             type="button"
@@ -2019,13 +2021,14 @@ export const PdfTools: React.FC = () => {
                               setSplitTabMode('all');
                               selectAllPages();
                             }}
-                            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                            className={`px-2 sm:px-3 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 text-[11px] sm:text-xs ${
                               splitTabMode === 'all'
                                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-bold'
                                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                             }`}
                           >
-                            <span>Extract All Pages</span>
+                            <span className="hidden sm:inline">Extract All Pages</span>
+                            <span className="sm:hidden">All Pages</span>
                           </button>
                         </div>
                       </div>

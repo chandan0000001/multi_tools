@@ -17,44 +17,45 @@ export const ToolHeader: React.FC<ToolHeaderProps> = ({ tool }) => {
   return (
     <div className="mb-6 space-y-4">
       {/* Breadcrumbs */}
-      <nav className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+      <nav className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 overflow-hidden text-ellipsis whitespace-nowrap">
         <Link
           to={catalogueUrl}
-          className="hover:text-brand-500 dark:hover:text-brand-400 flex items-center gap-1 transition-colors"
+          className="hover:text-slate-900 dark:hover:text-white flex items-center gap-1 transition-colors font-medium text-slate-600 dark:text-slate-300 shrink-0"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Back to {catalogueName}</span>
+          <span className="hidden sm:inline">Back to {catalogueName}</span>
+          <span className="sm:hidden">Back</span>
         </Link>
-        <span>/</span>
-        <span className="text-slate-400 dark:text-slate-500">{tool.category}</span>
-        <span>/</span>
-        <span className="text-slate-700 dark:text-slate-200 font-medium">{tool.title}</span>
+        <span className="text-slate-300 dark:text-slate-700">/</span>
+        <span className="text-slate-500 dark:text-slate-400 truncate">{tool.category}</span>
+        <span className="hidden sm:inline text-slate-300 dark:text-slate-700">/</span>
+        <span className="hidden sm:inline text-slate-800 dark:text-slate-200 font-medium truncate">{tool.title}</span>
       </nav>
 
       {/* Main Title & Privacy Meta */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex items-start gap-3.5">
-          <div className="p-2.5 rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-400 border border-brand-500/20 shrink-0">
-            <IconResolver name={tool.iconName} className="w-7 h-7" />
+        <div className="flex items-start gap-3 sm:gap-3.5">
+          <div className="p-2 sm:p-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm shrink-0">
+            <IconResolver name={tool.iconName} className="w-6 h-6 sm:w-7 sm:h-7" />
           </div>
           <div>
-            <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
                 {tool.title}
               </h1>
               {tool.badge && (
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-md bg-brand-500 text-white shadow-sm">
+                <span className="px-2 py-0.5 text-xs font-semibold rounded-md bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs">
                   {tool.badge}
                 </span>
               )}
             </div>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400 max-w-2xl">
+            <p className="mt-1 text-xs sm:text-sm text-slate-600 dark:text-slate-400 max-w-2xl leading-relaxed">
               {tool.shortDesc}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 self-start md:self-auto">
+        <div className="flex flex-wrap items-center gap-2 shrink-0 self-start md:self-auto">
           <PrivacyBadge type={tool.privacy} />
           <button
             onClick={() => setShowGuide(!showGuide)}

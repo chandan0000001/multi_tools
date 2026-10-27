@@ -153,7 +153,7 @@ export const Base64Tool: React.FC = () => {
           {mode === 'text' && (
             <button
               onClick={handleTransform}
-              className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs shadow-md shadow-brand-500/20"
+              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white font-semibold text-xs shadow-md transition-colors"
             >
               Execute {direction === 'encode' ? 'Encoding' : 'Decoding'}
             </button>
