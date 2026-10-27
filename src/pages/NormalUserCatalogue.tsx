@@ -90,6 +90,8 @@ export const NormalUserCatalogue: React.FC = () => {
 
           <Link
             to="/normalUser/pdf-tools"
+            target="_blank"
+            rel="noopener noreferrer"
             className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-md shadow-slate-900/10 shrink-0 transition-all"
           >
             <span>Explore All 33 PDF Utilities</span>
@@ -109,6 +111,8 @@ export const NormalUserCatalogue: React.FC = () => {
                 <Link
                   key={item.id}
                   to={`/normalUser/pdf-tools?mode=${item.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="premium-card group p-3.5 rounded-2xl bg-white dark:bg-surface-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-sm hover:border-rose-500/50 flex flex-col items-center text-center justify-between"
                 >
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm mb-2 ${item.color}`}>

@@ -42,7 +42,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
   const handleSelect = (route: string) => {
     onClose();
     setQuery('');
-    navigate(route);
+    window.open(route, '_blank', 'noopener,noreferrer');
   };
 
   return (

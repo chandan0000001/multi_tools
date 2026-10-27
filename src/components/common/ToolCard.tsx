@@ -13,6 +13,8 @@ export const ToolCard: React.FC<ToolCardProps> = ({ tool }) => {
   return (
     <Link
       to={tool.route}
+      target="_blank"
+      rel="noopener noreferrer"
       className="group relative flex flex-col justify-between p-5 rounded-2xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 hover:border-brand-500/50 dark:hover:border-brand-500/50 shadow-sm hover:shadow-xl hover:shadow-brand-500/5 transition-all duration-300"
     >
       <div>

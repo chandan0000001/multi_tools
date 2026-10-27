@@ -2039,14 +2039,16 @@ export const PdfTools: React.FC = () => {
             </div>
           </div>
 
-          {/* 31 Tools Cards Grid (Responsive 1-col on tiny mobile, 2-col on sm, 4-col on desktop) */}
+          {/* 33 Tools Cards Grid (Responsive 1-col on tiny mobile, 2-col on sm, 4-col on desktop) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
             {filteredCatalog.map((item) => {
               const Icon = item.icon;
               return (
-                <div
+                <a
                   key={item.id}
-                  onClick={() => selectTool(item.id)}
+                  href={`/normalUser/pdf-tools?mode=${item.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="premium-card group cursor-pointer p-4 sm:p-5 rounded-2xl bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-800 shadow-sm hover:border-brand-500/60 dark:hover:border-brand-500/60 flex flex-col justify-between active:scale-[0.98] transition-all"
                 >
                   <div>
@@ -2075,7 +2077,7 @@ export const PdfTools: React.FC = () => {
                       Open Tool &rarr;
                     </span>
                   </div>
-                </div>
+                </a>
               );
             })}
           </div>
