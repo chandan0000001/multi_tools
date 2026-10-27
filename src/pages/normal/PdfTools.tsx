@@ -464,6 +464,60 @@ async function extractAllTextFromPdfDoc(pdfBytes: Uint8Array | ArrayBuffer): Pro
   return '';
 }
 
+interface PdfPageMeta {
+  pageNumber: number;
+  width: number;
+  height: number;
+  isLandscape: boolean;
+}
+
+function formatPageNumbersToRange(nums: number[]): string {
+  if (nums.length === 0) return '';
+  const sorted = [...new Set(nums)].sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start = sorted[0];
+  let end = sorted[0];
+
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === end + 1) {
+      end = sorted[i];
+    } else {
+      ranges.push(start === end ? `${start}` : `${start}-${end}`);
+      start = sorted[i];
+      end = sorted[i];
+    }
+  }
+  ranges.push(start === end ? `${start}` : `${start}-${end}`);
+  return ranges.join(', ');
+}
+
+function parseRangeToPageNumbers(rangeStr: string, maxPages: number): number[] {
+  const result = new Set<number>();
+  const parts = rangeStr.split(',');
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    if (trimmed.includes('-')) {
+      const [sStr, eStr] = trimmed.split('-');
+      const s = parseInt(sStr.trim(), 10);
+      const e = parseInt(eStr.trim(), 10);
+      if (!isNaN(s) && !isNaN(e)) {
+        const from = Math.max(1, Math.min(s, e));
+        const to = Math.min(maxPages, Math.max(s, e));
+        for (let i = from; i <= to; i++) {
+          result.add(i);
+        }
+      }
+    } else {
+      const n = parseInt(trimmed, 10);
+      if (!isNaN(n) && n >= 1 && n <= maxPages) {
+        result.add(n);
+      }
+    }
+  }
+  return Array.from(result).sort((a, b) => a - b);
+}
+
 export const PdfTools: React.FC = () => {
   const tool = TOOLS.find((t) => t.id === 'pdf-tools')!;
   const { showToast } = useToast();
@@ -518,6 +572,123 @@ export const PdfTools: React.FC = () => {
   const [txtFontFamily, setTxtFontFamily] = useState<'Courier' | 'Helvetica' | 'TimesRoman'>('Courier');
   const [txtFontSize, setTxtFontSize] = useState<number>(10);
   const [txtIncludeHeader, setTxtIncludeHeader] = useState<boolean>(true);
+
+  // Split & Remove Pages Visual Selector states
+  const [docPages, setDocPages] = useState<PdfPageMeta[]>([]);
+  const [selectedPageNumbers, setSelectedPageNumbers] = useState<number[]>([]);
+  const [pagesToDelete, setPagesToDelete] = useState<number[]>([]);
+  const [splitTabMode, setSplitTabMode] = useState<'visual' | 'range' | 'all'>('visual');
+  const [isAnalyzingPdf, setIsAnalyzingPdf] = useState<boolean>(false);
+
+  // Inspect uploaded PDF pages to populate visual grid
+  useEffect(() => {
+    let cancelled = false;
+    async function inspectUploadedPdf() {
+      if (uploadedFiles.length === 0) {
+        setDocPages([]);
+        setSelectedPageNumbers([]);
+        setPagesToDelete([]);
+        return;
+      }
+      const first = uploadedFiles[0];
+      if (!first.name.toLowerCase().endsWith('.pdf') && first.file.type !== 'application/pdf') {
+        setDocPages([]);
+        return;
+      }
+      setIsAnalyzingPdf(true);
+      try {
+        const bytes = await first.file.arrayBuffer();
+        const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        const count = doc.getPageCount();
+        const pages: PdfPageMeta[] = [];
+        for (let i = 0; i < count; i++) {
+          const p = doc.getPage(i);
+          const { width, height } = p.getSize();
+          pages.push({
+            pageNumber: i + 1,
+            width: Math.round(width),
+            height: Math.round(height),
+            isLandscape: width > height,
+          });
+        }
+        if (!cancelled) {
+          setDocPages(pages);
+          const defaultSelected = pages.length <= 4 ? pages.map((p) => p.pageNumber) : [1, 2];
+          setSelectedPageNumbers(defaultSelected);
+          setSplitRange(formatPageNumbersToRange(defaultSelected));
+          if (pages.length > 1) {
+            setPagesToDelete([pages.length]);
+            setRemovePageNums(`${pages.length}`);
+          } else {
+            setPagesToDelete([]);
+            setRemovePageNums('');
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to parse PDF page metadata:', err);
+      } finally {
+        if (!cancelled) setIsAnalyzingPdf(false);
+      }
+    }
+
+    inspectUploadedPdf();
+    return () => {
+      cancelled = true;
+    };
+  }, [uploadedFiles]);
+
+  const toggleSplitPage = (num: number) => {
+    setSelectedPageNumbers((prev) => {
+      const next = prev.includes(num) ? prev.filter((n) => n !== num) : [...prev, num].sort((a, b) => a - b);
+      setSplitRange(formatPageNumbersToRange(next));
+      return next;
+    });
+  };
+
+  const selectAllPages = () => {
+    const all = docPages.map((p) => p.pageNumber);
+    setSelectedPageNumbers(all);
+    setSplitRange(formatPageNumbersToRange(all));
+  };
+
+  const deselectAllPages = () => {
+    setSelectedPageNumbers([]);
+    setSplitRange('');
+  };
+
+  const selectOddPages = () => {
+    const odds = docPages.filter((p) => p.pageNumber % 2 !== 0).map((p) => p.pageNumber);
+    setSelectedPageNumbers(odds);
+    setSplitRange(formatPageNumbersToRange(odds));
+  };
+
+  const selectEvenPages = () => {
+    const evens = docPages.filter((p) => p.pageNumber % 2 === 0).map((p) => p.pageNumber);
+    setSelectedPageNumbers(evens);
+    setSplitRange(formatPageNumbersToRange(evens));
+  };
+
+  const invertPageSelection = () => {
+    const inverted = docPages.filter((p) => !selectedPageNumbers.includes(p.pageNumber)).map((p) => p.pageNumber);
+    setSelectedPageNumbers(inverted);
+    setSplitRange(formatPageNumbersToRange(inverted));
+  };
+
+  const handleSplitRangeChange = (val: string) => {
+    setSplitRange(val);
+    if (docPages.length > 0) {
+      const parsed = parseRangeToPageNumbers(val, docPages.length);
+      setSelectedPageNumbers(parsed);
+    }
+  };
+
+  const togglePageToDelete = (num: number) => {
+    setPagesToDelete((prev) => {
+      const next = prev.includes(num) ? prev.filter((n) => n !== num) : [...prev, num].sort((a, b) => a - b);
+      setRemovePageNums(next.join(', '));
+      return next;
+    });
+  };
 
   // Sync activeTool with searchParams
   useEffect(() => {
@@ -735,29 +906,35 @@ export const PdfTools: React.FC = () => {
       else if (activeTool === 'split' || activeTool === 'extract-pages') {
         const srcDoc = await PDFDocument.load(firstFileBytes);
         const total = srcDoc.getPageCount();
-        const pagesToExtract: number[] = [];
+        let targetPageIndices: number[] = [];
 
-        splitRange.split(',').forEach((range) => {
-          if (range.includes('-')) {
-            const [s, e] = range.split('-').map(Number);
-            if (!isNaN(s) && !isNaN(e)) {
-              for (let i = Math.max(1, s); i <= Math.min(total, e); i++) {
-                pagesToExtract.push(i - 1);
-              }
-            }
-          } else {
-            const n = Number(range.trim());
-            if (!isNaN(n) && n >= 1 && n <= total) pagesToExtract.push(n - 1);
+        if (splitTabMode === 'visual') {
+          if (selectedPageNumbers.length === 0) {
+            showToast('Please select at least one page to extract', 'error');
+            setIsProcessing(false);
+            return;
           }
-        });
+          targetPageIndices = selectedPageNumbers.map((n) => n - 1);
+        } else if (splitTabMode === 'all') {
+          targetPageIndices = Array.from({ length: total }, (_, i) => i);
+        } else {
+          const parsed = parseRangeToPageNumbers(splitRange, total);
+          if (parsed.length === 0) {
+            showToast('Please enter a valid page range (e.g. 1-2, 4)', 'error');
+            setIsProcessing(false);
+            return;
+          }
+          targetPageIndices = parsed.map((n) => n - 1);
+        }
 
         const newDoc = await PDFDocument.create();
-        const copied = await newDoc.copyPages(srcDoc, pagesToExtract);
+        const copied = await newDoc.copyPages(srcDoc, targetPageIndices);
         copied.forEach((p) => newDoc.addPage(p));
         const out = await newDoc.save();
         const blob = new Blob([out], { type: 'application/pdf' });
         const downloadUrl = URL.createObjectURL(blob);
-        const filename = `extracted-pages-${Date.now()}.pdf`;
+        const pageLabel = targetPageIndices.map((i) => i + 1).join('-');
+        const filename = `${firstFile.name.replace('.pdf', '')}-split-pages-${pageLabel}.pdf`;
 
         setProcessedResult({
           blob,
@@ -766,19 +943,21 @@ export const PdfTools: React.FC = () => {
           size: blob.size,
           mimeType: 'application/pdf',
         });
-        showToast(`Extracted ${pagesToExtract.length} page(s)!`);
+        showToast(`Extracted ${targetPageIndices.length} page(s) successfully!`);
       }
 
       // 3. REMOVE PAGES
       else if (activeTool === 'remove-pages') {
         const srcDoc = await PDFDocument.load(firstFileBytes);
         const total = srcDoc.getPageCount();
-        const removeIndices = new Set(
-          removePageNums.split(',').map((n) => Number(n.trim()) - 1)
-        );
-        const keepIndices = Array.from({ length: total }, (_, i) => i).filter(
-          (i) => !removeIndices.has(i)
-        );
+        const removeSet = new Set(pagesToDelete.map((n) => n - 1));
+        const keepIndices = Array.from({ length: total }, (_, i) => i).filter((i) => !removeSet.has(i));
+
+        if (keepIndices.length === 0) {
+          showToast('Cannot delete all pages of the document', 'error');
+          setIsProcessing(false);
+          return;
+        }
 
         const newDoc = await PDFDocument.create();
         const copied = await newDoc.copyPages(srcDoc, keepIndices);
@@ -786,7 +965,7 @@ export const PdfTools: React.FC = () => {
         const out = await newDoc.save();
         const blob = new Blob([out], { type: 'application/pdf' });
         const downloadUrl = URL.createObjectURL(blob);
-        const filename = `pages-removed-${firstFile.name}`;
+        const filename = `${firstFile.name.replace('.pdf', '')}-remaining-${keepIndices.length}-pages.pdf`;
 
         setProcessedResult({
           blob,
@@ -795,7 +974,7 @@ export const PdfTools: React.FC = () => {
           size: blob.size,
           mimeType: 'application/pdf',
         });
-        showToast('Removed pages successfully!');
+        showToast(`Removed ${removeSet.size} page(s) successfully!`);
       }
 
       // 4. OCR PDF (Optical Character Recognition & Searchable Layer)
@@ -1788,35 +1967,359 @@ export const PdfTools: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Split Range */}
-                  {activeTool === 'split' && (
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Page Ranges to Extract
-                      </label>
-                      <input
-                        type="text"
-                        value={splitRange}
-                        onChange={(e) => setSplitRange(e.target.value)}
-                        placeholder="e.g. 1-3, 5, 8-10"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono"
-                      />
+                  {/* SPLIT PDF / EXTRACT PAGES ENHANCED WORKSPACE */}
+                  {(activeTool === 'split' || activeTool === 'extract-pages') && (
+                    <div className="space-y-4 p-5 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                      {/* Top mode switch & total page stats */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-700/80">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                              <Scissors className="w-3.5 h-3.5 text-rose-500" />
+                              <span>Split Configuration</span>
+                            </span>
+                            {docPages.length > 0 && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                                {docPages.length} Pages Total
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            Pick the exact pages you want to keep or specify custom page ranges.
+                          </p>
+                        </div>
+
+                        {/* Mode Switcher Tabs */}
+                        <div className="inline-flex p-1 rounded-xl bg-slate-200/80 dark:bg-slate-800 border border-slate-300/60 dark:border-slate-700 text-xs font-semibold self-start sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={() => setSplitTabMode('visual')}
+                            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                              splitTabMode === 'visual'
+                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-bold'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                          >
+                            <span>Visual Page Picker</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSplitTabMode('range')}
+                            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                              splitTabMode === 'range'
+                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-bold'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                          >
+                            <span>Custom Range</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSplitTabMode('all');
+                              selectAllPages();
+                            }}
+                            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                              splitTabMode === 'all'
+                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-bold'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                          >
+                            <span>Extract All Pages</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* MODE 1: VISUAL PAGE PICKER */}
+                      {splitTabMode === 'visual' && (
+                        <div className="space-y-3">
+                          {/* Quick selection toolstrip */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+                            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                              Click any page below to select/deselect:
+                            </span>
+
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={selectAllPages}
+                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs"
+                              >
+                                Select All
+                              </button>
+                              <button
+                                type="button"
+                                onClick={deselectAllPages}
+                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs"
+                              >
+                                Deselect All
+                              </button>
+                              <button
+                                type="button"
+                                onClick={selectOddPages}
+                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs"
+                              >
+                                Odd Pages
+                              </button>
+                              <button
+                                type="button"
+                                onClick={selectEvenPages}
+                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs"
+                              >
+                                Even Pages
+                              </button>
+                              <button
+                                type="button"
+                                onClick={invertPageSelection}
+                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs"
+                              >
+                                Invert
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Visual Grid of Pages */}
+                          {isAnalyzingPdf ? (
+                            <div className="py-12 text-center text-slate-400 space-y-2">
+                              <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500" />
+                              <p className="text-xs">Analyzing PDF pages and structure...</p>
+                            </div>
+                          ) : docPages.length > 0 ? (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 pt-2 max-h-96 overflow-y-auto pr-1">
+                              {docPages.map((page) => {
+                                const isSelected = selectedPageNumbers.includes(page.pageNumber);
+                                return (
+                                  <div
+                                    key={page.pageNumber}
+                                    onClick={() => toggleSplitPage(page.pageNumber)}
+                                    className={`group relative cursor-pointer rounded-2xl border-2 p-3 transition-all flex flex-col justify-between ${
+                                      isSelected
+                                        ? 'border-rose-500 bg-rose-50/60 dark:bg-rose-950/30 shadow-sm ring-2 ring-rose-500/20'
+                                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-800/80 hover:border-slate-300 dark:hover:border-slate-700 opacity-60 hover:opacity-100'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span
+                                        className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md ${
+                                          isSelected
+                                            ? 'bg-rose-600 text-white'
+                                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                                        }`}
+                                      >
+                                        Page {page.pageNumber}
+                                      </span>
+                                      <div
+                                        className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors ${
+                                          isSelected
+                                            ? 'bg-rose-600 text-white'
+                                            : 'border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                                        }`}
+                                      >
+                                        {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                                      </div>
+                                    </div>
+
+                                    {/* Document Sheet Graphic */}
+                                    <div className="aspect-[3/4] w-full rounded-lg bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-700 p-2.5 flex flex-col justify-between shadow-2xs">
+                                      <div className="space-y-1.5 opacity-60">
+                                        <div className="h-1.5 w-3/4 rounded-full bg-slate-400 dark:bg-slate-500" />
+                                        <div className="h-1 w-full rounded-full bg-slate-300 dark:bg-slate-700" />
+                                        <div className="h-1 w-5/6 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                        <div className="h-1 w-2/3 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                      </div>
+                                      <div className="text-center font-bold text-xs text-slate-300 dark:text-slate-600 font-mono select-none">
+                                        {page.pageNumber}
+                                      </div>
+                                      <div className="space-y-1 opacity-40">
+                                        <div className="h-1 w-full rounded-full bg-slate-300 dark:bg-slate-700" />
+                                        <div className="h-1 w-1/2 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-2 text-center text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                                      {page.isLandscape ? 'Landscape' : 'Portrait'} ({page.width}×{page.height})
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="p-4 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs text-slate-500 text-center">
+                              Please upload a PDF file above to preview pages.
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* MODE 2: CUSTOM RANGE */}
+                      {splitTabMode === 'range' && (
+                        <div className="space-y-3 pt-1">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                              Enter Page Ranges to Extract (Comma-separated)
+                            </label>
+                            <input
+                              type="text"
+                              value={splitRange}
+                              onChange={(e) => handleSplitRangeChange(e.target.value)}
+                              placeholder="e.g. 1-3, 5, 8-10"
+                              className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                            />
+                          </div>
+
+                          {/* Quick syntax chips */}
+                          {docPages.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <span className="text-slate-400">Quick ranges:</span>
+                              <button
+                                type="button"
+                                onClick={() => handleSplitRangeChange('1')}
+                                className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-rose-400"
+                              >
+                                First page (1)
+                              </button>
+                              {docPages.length > 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSplitRangeChange(`1-${Math.ceil(docPages.length / 2)}`)}
+                                  className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-rose-400"
+                                >
+                                  First half (1-{Math.ceil(docPages.length / 2)})
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleSplitRangeChange(`1-${docPages.length}`)}
+                                className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-rose-400"
+                              >
+                                All pages (1-{docPages.length})
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* MODE 3: EXTRACT ALL PAGES */}
+                      {splitTabMode === 'all' && (
+                        <div className="p-4 rounded-xl bg-rose-500/5 border border-rose-500/20 text-xs space-y-1">
+                          <p className="font-semibold text-rose-800 dark:text-rose-300">
+                            Extract All {docPages.length || 'N'} Pages
+                          </p>
+                          <p className="text-slate-600 dark:text-slate-400 text-[11px]">
+                            Every page of your document will be included in the extracted output bundle.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* REAL-TIME EXTRACTION SUMMARY BAR */}
+                      <div className="mt-3 p-3.5 rounded-xl bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center font-bold text-xs shrink-0">
+                            {selectedPageNumbers.length}
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-white block">
+                              {selectedPageNumbers.length > 0
+                                ? `Extracting ${selectedPageNumbers.length} of ${docPages.length || '?'} pages`
+                                : 'No pages selected yet'}
+                            </span>
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                              {selectedPageNumbers.length > 0
+                                ? `Pages: [${formatPageNumbersToRange(selectedPageNumbers)}]`
+                                : 'Select at least 1 page to create your split document.'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {selectedPageNumbers.length > 0 && (
+                          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold text-[11px] border border-emerald-500/20 self-end sm:self-auto">
+                            Ready to Split
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
 
-                  {/* Remove Pages */}
+                  {/* REMOVE PAGES VISUAL WORKSPACE */}
                   {activeTool === 'remove-pages' && (
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Pages to Delete (Comma-separated)
-                      </label>
-                      <input
-                        type="text"
-                        value={removePageNums}
-                        onChange={(e) => setRemovePageNums(e.target.value)}
-                        placeholder="e.g. 2, 4"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono"
-                      />
+                    <div className="space-y-4 p-5 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-700/80">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Select Pages to Delete</span>
+                            </span>
+                            {docPages.length > 0 && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                                {docPages.length} Pages Total
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            Click any page below to mark it for removal (marked pages will be deleted).
+                          </p>
+                        </div>
+                      </div>
+
+                      {docPages.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 pt-2 max-h-96 overflow-y-auto pr-1">
+                          {docPages.map((page) => {
+                            const isDeleted = pagesToDelete.includes(page.pageNumber);
+                            return (
+                              <div
+                                key={page.pageNumber}
+                                onClick={() => togglePageToDelete(page.pageNumber)}
+                                className={`group relative cursor-pointer rounded-2xl border-2 p-3 transition-all flex flex-col justify-between ${
+                                  isDeleted
+                                    ? 'border-rose-500 bg-rose-500/10 shadow-sm ring-2 ring-rose-500/20'
+                                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-800/80 hover:border-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <span
+                                    className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md ${
+                                      isDeleted
+                                        ? 'bg-rose-600 text-white'
+                                        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                                    }`}
+                                  >
+                                    Page {page.pageNumber}
+                                  </span>
+                                  {isDeleted ? (
+                                    <span className="text-[10px] font-bold text-rose-600">Delete</span>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 font-semibold">Keep</span>
+                                  )}
+                                </div>
+
+                                <div className="aspect-[3/4] w-full rounded-lg bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-700 p-2.5 flex flex-col justify-between relative overflow-hidden">
+                                  {isDeleted && (
+                                    <div className="absolute inset-0 bg-rose-600/15 flex items-center justify-center">
+                                      <Trash2 className="w-8 h-8 text-rose-600 opacity-80" />
+                                    </div>
+                                  )}
+                                  <div className="space-y-1.5 opacity-60">
+                                    <div className="h-1.5 w-3/4 rounded-full bg-slate-400" />
+                                    <div className="h-1 w-full rounded-full bg-slate-300 dark:bg-slate-700" />
+                                    <div className="h-1 w-5/6 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                  </div>
+                                  <div className="text-center font-bold text-xs text-slate-300 dark:text-slate-600 font-mono">
+                                    {page.pageNumber}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+
+                      <div className="p-3.5 rounded-xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 text-xs flex items-center justify-between">
+                        <span>
+                          Deleting <strong>{pagesToDelete.length}</strong> of {docPages.length || '?'} pages. Retaining{' '}
+                          <strong>{Math.max(0, docPages.length - pagesToDelete.length)}</strong> pages.
+                        </span>
+                      </div>
                     </div>
                   )}
 
@@ -1958,14 +2461,40 @@ export const PdfTools: React.FC = () => {
                   {/* Primary Create / Process Button */}
                   <div className="pt-2 flex justify-end">
                     <button
-                      disabled={isProcessing}
+                      disabled={
+                        isProcessing ||
+                        ((activeTool === 'split' || activeTool === 'extract-pages') &&
+                          splitTabMode === 'visual' &&
+                          selectedPageNumbers.length === 0) ||
+                        (activeTool === 'remove-pages' &&
+                          docPages.length > 0 &&
+                          pagesToDelete.length === docPages.length)
+                      }
                       onClick={executeActiveTool}
-                      className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-rose-500/20 disabled:opacity-50 transition-all"
+                      className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-rose-500/20 disabled:opacity-50 transition-all active:scale-[0.98]"
                     >
                       {isProcessing ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
                           <span>Processing in Browser...</span>
+                        </>
+                      ) : activeTool === 'split' || activeTool === 'extract-pages' ? (
+                        <>
+                          <Scissors className="w-4 h-4" />
+                          <span>
+                            {selectedPageNumbers.length > 0
+                              ? `Split & Extract ${selectedPageNumbers.length} Page(s)`
+                              : 'Select Pages to Split'}
+                          </span>
+                        </>
+                      ) : activeTool === 'remove-pages' ? (
+                        <>
+                          <Trash2 className="w-4 h-4" />
+                          <span>
+                            {pagesToDelete.length > 0
+                              ? `Delete ${pagesToDelete.length} Page(s) & Save`
+                              : 'Select Pages to Delete'}
+                          </span>
                         </>
                       ) : (
                         <>
