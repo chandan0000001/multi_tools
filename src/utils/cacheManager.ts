@@ -63,6 +63,9 @@ export function setCachedResult<T>(toolId: string, inputKey: string, data: T): b
     }
 
     localStorage.setItem(storageKey, serialized);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('multi_tools:cache_update'));
+    }
     return true;
   } catch (err) {
     console.warn('[Cache] Could not write to localStorage (quota exceeded or restricted):', err);
@@ -152,6 +155,10 @@ export function clearAllToolCache(): number {
     localStorage.removeItem(k);
     removedCount++;
   });
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('multi_tools:cache_update'));
+  }
 
   return removedCount;
 }

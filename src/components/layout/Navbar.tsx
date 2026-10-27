@@ -27,8 +27,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
   const location = useLocation();
 
   const handleClearCache = () => {
-    const cleared = clearCache();
-    showToast(`Cleared ${cleared} cached result(s) from local storage`, 'info');
+    const res = clearCache();
+    if (res.count > 0) {
+      const sizeKb = (res.freedBytes / 1024).toFixed(1);
+      showToast(`Purged ${res.count} cached item(s) (${sizeKb} KB) from storage`, 'success');
+    } else {
+      showToast('Cache is already clean (0 items stored)', 'info');
+    }
   };
 
   const isDevActive = location.pathname.startsWith('/developers');
@@ -36,7 +41,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
 
   return (
     <header className="sticky top-0 z-40 w-full custom-glass border-b border-slate-200/80 dark:border-slate-800/80 transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 sm:gap-4">
         {/* Brand */}
         <div className="flex items-center gap-6">
           <Link to="/normalUser" className="flex items-center gap-3 group">
@@ -180,21 +185,24 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
             <span>Developer Tools</span>
           </NavLink>
 
-          {stats.count > 0 && (
+          {/* Cache Status & Actions in Mobile Drawer */}
+          <div className="pt-1">
             <button
               onClick={() => {
                 handleClearCache();
                 setMobileMenuOpen(false);
               }}
-              className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-xl"
+              className="w-full flex items-center justify-between px-3.5 py-2.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors"
             >
               <span className="flex items-center gap-2">
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Clear Cached Results</span>
+                <Trash2 className={`w-3.5 h-3.5 ${stats.count > 0 ? 'text-amber-500' : 'text-slate-400'}`} />
+                <span>{stats.count > 0 ? 'Purge Cached Data' : 'Local Cache Status'}</span>
               </span>
-              <span>{stats.count} item(s)</span>
+              <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                {stats.count > 0 ? `${stats.count} item(s) • ${(stats.totalSizeBytes / 1024).toFixed(1)} KB` : 'Clean (0 items)'}
+              </span>
             </button>
-          )}
+          </div>
 
           <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
             <Link to="/privacy" onClick={() => setMobileMenuOpen(false)} className="hover:underline">

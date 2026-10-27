@@ -101,10 +101,15 @@ export const NormalUserCatalogue: React.FC = () => {
 
         {/* Quick Access PDF Cards Carousel / Grid */}
         <div className="pt-4 sm:pt-6">
-          <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2.5 sm:mb-3">
-            Quick Actions
-          </span>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3">
+          <div className="flex items-center justify-between mb-2.5 sm:mb-3">
+            <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              Quick Actions
+            </span>
+            <span className="sm:hidden text-[10px] font-medium text-slate-400">
+              Swipe &rarr;
+            </span>
+          </div>
+          <div className="flex sm:grid sm:grid-cols-4 lg:grid-cols-8 gap-2.5 sm:gap-3 overflow-x-auto pb-2 scrollbar-none snap-x -mx-1 px-1">
             {TOP_PDF_ACTIONS.map((item) => {
               const Icon = item.icon;
               return (
@@ -113,7 +118,7 @@ export const NormalUserCatalogue: React.FC = () => {
                   to={`/normalUser/pdf-tools?mode=${item.id}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="premium-card group p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-white dark:bg-surface-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-sm hover:border-rose-500/50 flex flex-col items-center text-center justify-between"
+                  className="premium-card group shrink-0 w-[110px] sm:w-auto snap-start p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-white dark:bg-surface-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-sm hover:border-rose-500/50 flex flex-col items-center text-center justify-between"
                 >
                   <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shadow-sm mb-1.5 sm:mb-2 ${item.color}`}>
                     <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
