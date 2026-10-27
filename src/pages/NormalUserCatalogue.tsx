@@ -15,6 +15,7 @@ import {
   ImageIcon,
   Lock,
   ArrowRight,
+  Camera,
 } from 'lucide-react';
 import { TOOLS } from '../data/toolsData';
 import { ToolCard } from '../components/common/ToolCard';
@@ -36,10 +37,11 @@ const TOP_PDF_ACTIONS = [
   { id: 'merge', name: 'Merge PDF', icon: Merge, color: 'bg-rose-500 text-white', desc: 'Combine multiple PDFs' },
   { id: 'split', name: 'Split PDF', icon: Scissors, color: 'bg-amber-500 text-white', desc: 'Extract pages & ranges' },
   { id: 'compress', name: 'Compress PDF', icon: Minimize2, color: 'bg-emerald-500 text-white', desc: 'Reduce PDF file size' },
-  { id: 'pdf-to-word', name: 'PDF to Word', icon: FileEdit, color: 'bg-blue-500 text-white', desc: 'Convert to editable DOCX' },
+  { id: 'ocr', name: 'OCR PDF', icon: FileText, color: 'bg-emerald-600 text-white', desc: 'Make PDF searchable' },
+  { id: 'pdf-to-word', name: 'PDF to Word', icon: FileEdit, color: 'bg-blue-500 text-white', desc: 'Convert to DOCX' },
   { id: 'sign', name: 'Sign PDF', icon: FileSignature, color: 'bg-indigo-600 text-white', desc: 'Draw & stamp signatures' },
-  { id: 'jpg-to-pdf', name: 'JPG to PDF', icon: ImageIcon, color: 'bg-yellow-500 text-white', desc: 'Photos to PDF documents' },
   { id: 'protect', name: 'Protect PDF', icon: Lock, color: 'bg-blue-700 text-white', desc: 'Encrypt with password' },
+  { id: 'scan-pdf', name: 'Scan to PDF', icon: Camera, color: 'bg-orange-500 text-white', desc: 'Capture from camera' },
 ];
 
 export const NormalUserCatalogue: React.FC = () => {
@@ -100,7 +102,7 @@ export const NormalUserCatalogue: React.FC = () => {
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-3">
             Quick Actions
           </span>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 sm:gap-3">
             {TOP_PDF_ACTIONS.map((item) => {
               const Icon = item.icon;
               return (
