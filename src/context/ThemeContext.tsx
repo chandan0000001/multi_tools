@@ -14,8 +14,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [theme, setThemeState] = useState<Theme>(() => {
     const saved = localStorage.getItem('multi_tools:theme');
     if (saved === 'light' || saved === 'dark') return saved;
-    // Default to dark as per PRD Section 5 & 10
-    return 'dark';
+    // Premium white mode default as requested
+    return 'light';
   });
 
   useEffect(() => {

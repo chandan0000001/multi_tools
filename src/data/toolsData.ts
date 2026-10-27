@@ -1,7 +1,24 @@
 import { ToolMetadata } from '../types/tools';
 
 export const TOOLS: ToolMetadata[] = [
-  // --- NORMAL USER TOOLS ---
+  // --- NORMAL USER TOOLS (PDF SUITE FIRST ON TOP AS PER BUSINESS DESIGN) ---
+  {
+    id: 'pdf-tools',
+    title: 'PDF Productivity Suite',
+    shortDesc: 'All-in-one browser PDF studio: Merge, Split, Compress, Convert (Office & Images), Sign, Protect, Watermark, and Edit.',
+    category: 'Files',
+    audience: 'normalUser',
+    route: '/normalUser/pdf-tools',
+    privacy: 'local',
+    privacyNotice: '100% Local execution via pdf-lib and Web APIs. No documents or sensitive information ever leave your browser.',
+    iconName: 'FileText',
+    badge: 'Suite (Top Featured)',
+    keywords: ['pdf', 'merge pdf', 'split pdf', 'compress pdf', 'pdf to word', 'sign pdf', 'protect pdf', 'watermark', 'ocr', 'rotate pdf', 'organize pdf'],
+    beforeYouUse: 'Choose from 25+ local PDF tools below. Everything executes in client-side memory without cloud uploads.',
+    bestFor: ['Merging statements', 'Compressing attachments', 'Signing contracts', 'Office format conversion', 'Password protecting confidential files'],
+    limitations: ['Extremely large documents (>150MB) depend on available device memory.'],
+    cacheable: false,
+  },
   {
     id: 'calculator',
     title: 'Multi-Mode Calculator',
@@ -35,23 +52,6 @@ export const TOOLS: ToolMetadata[] = [
     beforeYouUse: 'Drag and drop or select one or multiple images. You can adjust quality, dimensions, and aspect ratio.',
     bestFor: ['Reducing file size for uploads', 'Resizing avatar images', 'Converting PNGs to lightweight WebP'],
     limitations: ['HEIC / RAW formats require browser decoder support; processing huge images (>40MP) may require high device memory.'],
-    cacheable: false,
-  },
-  {
-    id: 'pdf-tools',
-    title: 'PDF Utilities',
-    shortDesc: 'Merge multiple PDFs, split pages, convert photos to PDF, and reorder or rotate document pages.',
-    category: 'Files',
-    audience: 'normalUser',
-    route: '/normalUser/pdf-tools',
-    privacy: 'local',
-    privacyNotice: '100% Local execution via pdf-lib. No documents or sensitive information are ever uploaded to any server.',
-    iconName: 'FileText',
-    badge: 'Privacy First',
-    keywords: ['pdf', 'merge pdf', 'split pdf', 'images to pdf', 'rotate pdf', 'reorder pages', 'documents'],
-    beforeYouUse: 'Add your PDF files or images. Arrange pages in the order you want before downloading the final document.',
-    bestFor: ['Merging bank statements or invoices', 'Extracting specific pages', 'Creating a PDF handbook from photos'],
-    limitations: ['Very large PDFs (>100MB) might take a few seconds to parse depending on your browser memory.'],
     cacheable: false,
   },
   {
