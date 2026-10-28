@@ -7,7 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
 import { inflate } from 'pako';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt';
-import { decryptPDF } from '@pdfsmaller/pdf-decrypt';
+import { decryptPDF, isEncrypted } from '@pdfsmaller/pdf-decrypt';
 import { OrganizePdfWorkspace } from '../../components/pdf/OrganizePdfWorkspace';
 import { PositionGridPicker } from '../../components/pdf/PositionGridPicker';
 import { renderPdfPageThumbnail } from '../../utils/pdfRenderer';
@@ -624,6 +624,9 @@ export const PdfTools: React.FC = () => {
   const watermarkImageInputRef = useRef<HTMLInputElement>(null);
 
   const [passwordInput, setPasswordInput] = useState('');
+  const [showUnlockPassword, setShowUnlockPassword] = useState(false);
+  const [isDocEncrypted, setIsDocEncrypted] = useState(false);
+  const [docEncryptionInfo, setDocEncryptionInfo] = useState<string>('');
   const [pageNumberFormat, setPageNumberFormat] = useState<'page_x_of_y' | 'page_x'>('page_x_of_y');
   const [pageNumberPos, setPageNumberPos] = useState<'bottom_center' | 'bottom_right' | 'top_right'>('bottom_center');
   const [signatureMode, setSignatureMode] = useState<'draw' | 'type' | 'upload'>('draw');
@@ -752,6 +755,8 @@ export const PdfTools: React.FC = () => {
         setPagesToDelete([]);
         setFileThumbnails({});
         setPageThumbnails({});
+        setIsDocEncrypted(false);
+        setDocEncryptionInfo('');
         return;
       }
 
@@ -786,18 +791,41 @@ export const PdfTools: React.FC = () => {
       setIsAnalyzingPdf(true);
       try {
         const bytes = await first.file.arrayBuffer();
+
+        try {
+          const encStatus = await isEncrypted(new Uint8Array(bytes));
+          if (!cancelled && encStatus && encStatus.encrypted) {
+            setIsDocEncrypted(true);
+            setDocEncryptionInfo(`${encStatus.algorithm || 'Encrypted'} (${encStatus.keyLength || 256}-bit)`);
+          } else if (!cancelled) {
+            setIsDocEncrypted(false);
+            setDocEncryptionInfo('');
+          }
+        } catch {
+          // ignore error checking encryption
+        }
+
         const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
         const count = doc.getPageCount();
         const pages: PdfPageMeta[] = [];
         for (let i = 0; i < count; i++) {
-          const p = doc.getPage(i);
-          const { width, height } = p.getSize();
-          pages.push({
-            pageNumber: i + 1,
-            width: Math.round(width),
-            height: Math.round(height),
-            isLandscape: width > height,
-          });
+          try {
+            const p = doc.getPage(i);
+            const { width, height } = p.getSize();
+            pages.push({
+              pageNumber: i + 1,
+              width: Math.round(width),
+              height: Math.round(height),
+              isLandscape: width > height,
+            });
+          } catch {
+            pages.push({
+              pageNumber: i + 1,
+              width: 595,
+              height: 842,
+              isLandscape: false,
+            });
+          }
         }
         if (!cancelled) {
           setDocPages(pages);
@@ -1719,15 +1747,33 @@ export const PdfTools: React.FC = () => {
       // 11. UNLOCK PDF (Real Decryption & Security Removal)
       else if (activeTool === 'unlock') {
         let outBytes: Uint8Array;
+        const pass = (passwordInput || '').trim();
+
         try {
-          if (passwordInput) {
-            outBytes = await decryptPDF(new Uint8Array(firstFileBytes), passwordInput);
+          outBytes = await decryptPDF(new Uint8Array(firstFileBytes), pass);
+        } catch (decErr: any) {
+          const errMsg = decErr?.message || '';
+          if (errMsg.includes('not encrypted')) {
+            outBytes = new Uint8Array(firstFileBytes);
+            showToast('Document has no password protection. Ready for download.');
+          } else if (errMsg.includes('Incorrect password')) {
+            showToast(
+              pass
+                ? 'Incorrect password! The entered password does not match this document.'
+                : 'This PDF is password protected. Please enter the password in the sidebar.',
+              'error'
+            );
+            setIsProcessing(false);
+            return;
+          } else if (!pass) {
+            showToast('This PDF is password protected. Please enter the password in the sidebar.', 'error');
+            setIsProcessing(false);
+            return;
           } else {
-            outBytes = await decryptPDF(new Uint8Array(firstFileBytes), '');
+            showToast(`Decryption error: ${errMsg}`, 'error');
+            setIsProcessing(false);
+            return;
           }
-        } catch {
-          const srcDoc = await PDFDocument.load(firstFileBytes, { ignoreEncryption: true });
-          outBytes = await srcDoc.save();
         }
 
         const blob = new Blob([outBytes], { type: 'application/pdf' });
@@ -1741,7 +1787,7 @@ export const PdfTools: React.FC = () => {
           size: blob.size,
           mimeType: 'application/pdf',
         });
-        showToast('Unlocked PDF document!');
+        showToast('Document unlocked successfully! Security restrictions removed.');
       }
 
       // 12. SIGN PDF (Clean, Multi-Position Signature Placement)
@@ -3983,6 +4029,15 @@ export const PdfTools: React.FC = () => {
                                   alt={uploadedFiles[0]?.name}
                                   className="max-h-full max-w-full object-contain rounded-xl"
                                 />
+                              ) : activeTool === 'unlock' || isDocEncrypted ? (
+                                <div className="text-center space-y-2.5 p-3 flex flex-col items-center justify-center">
+                                  <div className="w-16 h-16 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shadow-inner">
+                                    <Lock className="w-8 h-8" />
+                                  </div>
+                                  <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider block">
+                                    Locked PDF
+                                  </span>
+                                </div>
                               ) : (
                                 <FileText className="w-16 h-16 text-rose-500 opacity-60" />
                               )}
@@ -4007,6 +4062,11 @@ export const PdfTools: React.FC = () => {
                                 {(uploadedFiles[0]?.size / 1024).toFixed(1)} KB
                                 {docPages.length > 0 && ` • ${docPages.length} Pages`}
                               </p>
+                              {activeTool === 'unlock' && (
+                                <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold pt-1">
+                                  🔒 Password required to unlock
+                                </p>
+                              )}
                             </div>
                           </div>
                         )}
@@ -4836,6 +4896,49 @@ export const PdfTools: React.FC = () => {
                               className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono"
                             />
                           </div>
+                        </div>
+                      )}
+
+                      {/* UNLOCK PDF SIDEBAR */}
+                      {activeTool === 'unlock' && (
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Document Password:
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showUnlockPassword ? 'text' : 'password'}
+                                value={passwordInput}
+                                onChange={(e) => setPasswordInput(e.target.value)}
+                                placeholder="Enter document password..."
+                                className="w-full px-3 py-2.5 pr-10 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowUnlockPassword(!showUnlockPassword)}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                title={showUnlockPassword ? 'Hide password' : 'Show password'}
+                              >
+                                {showUnlockPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5 leading-relaxed">
+                              Enter the document password to permanently remove encryption and security restrictions.
+                            </p>
+                          </div>
+
+                          {isDocEncrypted && (
+                            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-300">
+                              <Lock className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                              <div className="space-y-0.5">
+                                <span className="font-bold">Password-Protected PDF</span>
+                                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                                  This file is locked with encryption ({docEncryptionInfo || 'Standard Encryption'}).
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
