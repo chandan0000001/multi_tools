@@ -7,6 +7,8 @@ import { useToast } from '../../context/ToastContext';
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
 import { inflate } from 'pako';
 import { OrganizePdfWorkspace } from '../../components/pdf/OrganizePdfWorkspace';
+import { PositionGridPicker } from '../../components/pdf/PositionGridPicker';
+import { renderPdfPageThumbnail } from '../../utils/pdfRenderer';
 import { recordToolActivity } from '../../utils/cacheManager';
 import {
   FileText,
@@ -21,6 +23,7 @@ import {
   FileSignature,
   Stamp,
   RotateCw,
+  RotateCcw,
   Code,
   Unlock,
   ShieldCheck,
@@ -40,6 +43,11 @@ import {
   Upload,
   Download,
   ArrowLeft,
+  ArrowRight,
+  ArrowUpDown,
+  SortAsc,
+  Info,
+  Sliders,
   Loader2,
   Search,
   Sparkles,
@@ -49,6 +57,12 @@ import {
   Eye,
   RefreshCw,
   Copy,
+  Plus,
+  ZoomIn,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Grid,
 } from 'lucide-react';
 
 export type PdfToolId =
@@ -582,7 +596,53 @@ export const PdfTools: React.FC = () => {
   const [splitTabMode, setSplitTabMode] = useState<'visual' | 'range' | 'all'>('visual');
   const [isAnalyzingPdf, setIsAnalyzingPdf] = useState<boolean>(false);
 
-  // Inspect uploaded PDF pages to populate visual grid
+  // ILovePDF Workspace States
+  const [fileThumbnails, setFileThumbnails] = useState<{ [fileName: string]: string }>({});
+  const [pageThumbnails, setPageThumbnails] = useState<{ [pageNum: number]: string }>({});
+  const [zoomModalImage, setZoomModalImage] = useState<string | null>(null);
+
+  // Split PDF specific states (matching ILovePDF Images 2 & 4)
+  const [splitMainTab, setSplitMainTab] = useState<'range' | 'pages'>('range');
+  const [splitRangeMode, setSplitRangeMode] = useState<'custom' | 'fixed'>('custom');
+  const [splitRanges, setSplitRanges] = useState<{ id: string; from: number; to: number }[]>([
+    { id: '1', from: 1, to: 1 },
+  ]);
+  const [splitMergeAll, setSplitMergeAll] = useState<boolean>(false);
+  const [splitExtractMode, setSplitExtractMode] = useState<'all' | 'select'>('select');
+  const [splitExtractPagesInput, setSplitExtractPagesInput] = useState<string>('1');
+
+  // Compress PDF level (matching ILovePDF Image 7)
+  const [compressionLevel, setCompressionLevel] = useState<'extreme' | 'recommended' | 'less'>('recommended');
+
+  // Watermark options (matching ILovePDF Image 21)
+  const [watermarkTab, setWatermarkTab] = useState<'text' | 'image'>('text');
+  const [watermarkPos, setWatermarkPos] = useState<string>('top_left');
+  const [watermarkMosaic, setWatermarkMosaic] = useState<boolean>(false);
+  const [watermarkLayer, setWatermarkLayer] = useState<'over' | 'below'>('over');
+  const [watermarkRotDeg, setWatermarkRotDeg] = useState<number>(0);
+
+  // Page Numbers options (matching ILovePDF Image 20)
+  const [pageNumberMode, setPageNumberMode] = useState<'single' | 'facing'>('single');
+  const [pageNumberPosGrid, setPageNumberPosGrid] = useState<string>('bottom_right');
+  const [pageNumberMargin, setPageNumberMargin] = useState<'recommended' | 'small' | 'large'>('recommended');
+  const [pageNumberFirstNum, setPageNumberFirstNum] = useState<number>(1);
+  const [pageNumberFromPage, setPageNumberFromPage] = useState<number>(1);
+  const [pageNumberToPage, setPageNumberToPage] = useState<number>(1);
+  const [pageNumberTextFormat, setPageNumberTextFormat] = useState<'number_only' | 'page_x_of_y'>('number_only');
+
+  // JPG to PDF options (matching ILovePDF Image 10)
+  const [jpgOrientation, setJpgOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [jpgPageSize, setJpgPageSize] = useState<'a4' | 'letter' | 'fit'>('a4');
+  const [jpgMargin, setJpgMargin] = useState<'none' | 'small' | 'big'>('none');
+  const [jpgMergeAll, setJpgMergeAll] = useState<boolean>(true);
+
+  // Crop PDF options (matching ILovePDF Image 22)
+  const [cropScope, setCropScope] = useState<'all' | 'current'>('all');
+
+  // Protect PDF options (matching ILovePDF Image 25)
+  const [confirmPassword, setConfirmPassword] = useState<string>('');
+
+  // Inspect uploaded PDF pages to populate visual grid & render thumbnails
   useEffect(() => {
     let cancelled = false;
     async function inspectUploadedPdf() {
@@ -590,8 +650,34 @@ export const PdfTools: React.FC = () => {
         setDocPages([]);
         setSelectedPageNumbers([]);
         setPagesToDelete([]);
+        setFileThumbnails({});
+        setPageThumbnails({});
         return;
       }
+
+      // 1. Generate cover thumbnails for uploadedFiles (e.g. merge, jpg-to-pdf, compress)
+      for (const item of uploadedFiles) {
+        if (item.file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (!cancelled && typeof reader.result === 'string') {
+              setFileThumbnails((prev) => ({ ...prev, [item.name]: reader.result as string }));
+            }
+          };
+          reader.readAsDataURL(item.file);
+        } else if (item.file.type === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf')) {
+          try {
+            const buf = await item.file.arrayBuffer();
+            const thumb = await renderPdfPageThumbnail(buf, 1, 0.45);
+            if (!cancelled && thumb) {
+              setFileThumbnails((prev) => ({ ...prev, [item.name]: thumb }));
+            }
+          } catch (e) {
+            console.warn('Could not generate cover thumb for', item.name, e);
+          }
+        }
+      }
+
       const first = uploadedFiles[0];
       if (!first.name.toLowerCase().endsWith('.pdf') && first.file.type !== 'application/pdf') {
         setDocPages([]);
@@ -618,12 +704,27 @@ export const PdfTools: React.FC = () => {
           const defaultSelected = pages.length <= 4 ? pages.map((p) => p.pageNumber) : [1, 2];
           setSelectedPageNumbers(defaultSelected);
           setSplitRange(formatPageNumbersToRange(defaultSelected));
+          setSplitRanges([{ id: '1', from: 1, to: Math.min(count, 1) }]);
+          setSplitExtractPagesInput(formatPageNumbersToRange(defaultSelected));
+          setPageNumberToPage(count);
+
           if (pages.length > 1) {
             setPagesToDelete([pages.length]);
             setRemovePageNums(`${pages.length}`);
           } else {
             setPagesToDelete([]);
             setRemovePageNums('');
+          }
+
+          // Asynchronously render page thumbnails up to 30 pages
+          const limit = Math.min(count, 30);
+          for (let p = 1; p <= limit; p++) {
+            if (cancelled) break;
+            renderPdfPageThumbnail(bytes, p, 0.45).then((thumb) => {
+              if (!cancelled && thumb) {
+                setPageThumbnails((prev) => ({ ...prev, [p]: thumb }));
+              }
+            });
           }
         }
       } catch (err) {
@@ -638,6 +739,52 @@ export const PdfTools: React.FC = () => {
       cancelled = true;
     };
   }, [uploadedFiles]);
+
+  const sortFilesAlphabetically = () => {
+    setUploadedFiles((prev) => [...prev].sort((a, b) => a.name.localeCompare(b.name)));
+    showToast('Sorted files alphabetically');
+  };
+
+  const moveFileOrder = (index: number, direction: 'left' | 'right') => {
+    const targetIndex = direction === 'left' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= uploadedFiles.length) return;
+    setUploadedFiles((prev) => {
+      const copy = [...prev];
+      const temp = copy[index];
+      copy[index] = copy[targetIndex];
+      copy[targetIndex] = temp;
+      return copy;
+    });
+  };
+
+  const addSplitRange = () => {
+    setSplitRanges((prev) => {
+      const last = prev[prev.length - 1];
+      const nextFrom = Math.min(docPages.length || 1, (last ? last.to : 0) + 1);
+      const nextTo = Math.min(docPages.length || 1, nextFrom + 1);
+      return [
+        ...prev,
+        {
+          id: String(Date.now()),
+          from: nextFrom,
+          to: nextTo,
+        },
+      ];
+    });
+  };
+
+  const removeSplitRange = (id: string) => {
+    if (splitRanges.length <= 1) return;
+    setSplitRanges((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const updateSplitRange = (id: string, field: 'from' | 'to', val: number) => {
+    setSplitRanges((prev) =>
+      prev.map((r) =>
+        r.id === id ? { ...r, [field]: Math.max(1, Math.min(docPages.length || 999, val)) } : r
+      )
+    );
+  };
 
   const toggleSplitPage = (num: number) => {
     setSelectedPageNumbers((prev) => {
@@ -919,23 +1066,30 @@ export const PdfTools: React.FC = () => {
         const total = srcDoc.getPageCount();
         let targetPageIndices: number[] = [];
 
-        if (splitTabMode === 'visual') {
-          if (selectedPageNumbers.length === 0) {
-            showToast('Please select at least one page to extract', 'error');
-            setIsProcessing(false);
-            return;
+        if (splitMainTab === 'range') {
+          const indicesSet = new Set<number>();
+          for (const rng of splitRanges) {
+            const start = Math.min(rng.from, rng.to);
+            const end = Math.max(rng.from, rng.to);
+            for (let p = start; p <= Math.min(end, total); p++) {
+              indicesSet.add(p - 1);
+            }
           }
-          targetPageIndices = selectedPageNumbers.map((n) => n - 1);
-        } else if (splitTabMode === 'all') {
-          targetPageIndices = Array.from({ length: total }, (_, i) => i);
+          targetPageIndices = Array.from(indicesSet).sort((a, b) => a - b);
         } else {
-          const parsed = parseRangeToPageNumbers(splitRange, total);
-          if (parsed.length === 0) {
-            showToast('Please enter a valid page range (e.g. 1-2, 4)', 'error');
-            setIsProcessing(false);
-            return;
+          // Pages tab
+          if (splitExtractMode === 'all') {
+            targetPageIndices = Array.from({ length: total }, (_, i) => i);
+          } else {
+            const parsed = parseRangeToPageNumbers(splitExtractPagesInput || splitRange, total);
+            targetPageIndices = (parsed.length > 0 ? parsed : selectedPageNumbers).map((n) => n - 1);
           }
-          targetPageIndices = parsed.map((n) => n - 1);
+        }
+
+        if (targetPageIndices.length === 0) {
+          showToast('Please select at least one page to extract', 'error');
+          setIsProcessing(false);
+          return;
         }
 
         const newDoc = await PDFDocument.create();
@@ -1077,15 +1231,43 @@ export const PdfTools: React.FC = () => {
 
         pages.forEach((p) => {
           const { width, height } = p.getSize();
-          p.drawText(watermarkText, {
-            x: width / 4,
-            y: height / 2,
-            size: 48,
-            font,
-            color: rgb(0.8, 0.2, 0.2),
-            opacity: watermarkOpacity / 100,
-            rotate: degrees(35),
-          });
+          const text = watermarkText || 'Multi_Tools';
+          const opacity = watermarkOpacity / 100;
+          const rotDeg = watermarkRotDeg || 35;
+
+          if (watermarkMosaic) {
+            for (let row = 0; row < 3; row++) {
+              for (let col = 0; col < 3; col++) {
+                p.drawText(text, {
+                  x: (width / 4) * (col + 0.8),
+                  y: (height / 4) * (row + 0.8),
+                  size: 24,
+                  font,
+                  color: rgb(0.8, 0.2, 0.2),
+                  opacity: Math.max(0.08, opacity * 0.7),
+                  rotate: degrees(rotDeg),
+                });
+              }
+            }
+          } else {
+            let xPos = width / 2 - 70;
+            let yPos = height / 2;
+            const pos = watermarkPos;
+            if (pos.includes('left')) xPos = 40;
+            if (pos.includes('right')) xPos = width - 180;
+            if (pos.includes('top')) yPos = height - 70;
+            if (pos.includes('bottom')) yPos = 70;
+
+            p.drawText(text, {
+              x: xPos,
+              y: yPos,
+              size: 36,
+              font,
+              color: rgb(0.8, 0.2, 0.2),
+              opacity,
+              rotate: degrees(rotDeg),
+            });
+          }
         });
         const out = await srcDoc.save();
         const blob = new Blob([out], { type: 'application/pdf' });
@@ -1110,18 +1292,24 @@ export const PdfTools: React.FC = () => {
         const total = pages.length;
 
         pages.forEach((p, idx) => {
-          const { width } = p.getSize();
+          const pageNum = idx + 1;
+          if (pageNum < pageNumberFromPage || pageNum > pageNumberToPage) return;
+
+          const { width, height } = p.getSize();
           const pageStr =
-            pageNumberFormat === 'page_x_of_y'
-              ? `Page ${idx + 1} of ${total}`
-              : `Page ${idx + 1}`;
-          let xPos = width / 2 - 30;
+            pageNumberTextFormat === 'page_x_of_y'
+              ? `Page ${idx + pageNumberFirstNum} of ${total}`
+              : `${idx + pageNumberFirstNum}`;
+
+          let xPos = width / 2 - 20;
           let yPos = 25;
-          if (pageNumberPos === 'bottom_right') xPos = width - 100;
-          if (pageNumberPos === 'top_right') {
-            xPos = width - 100;
-            yPos = p.getSize().height - 30;
-          }
+
+          const pos = pageNumberPosGrid || pageNumberPos;
+          if (pos.includes('left')) xPos = 35;
+          if (pos.includes('right')) xPos = width - 85;
+          if (pos.includes('top')) yPos = height - 35;
+          if (pos.includes('middle')) yPos = height / 2;
+          if (pos.includes('bottom')) yPos = 25;
 
           p.drawText(pageStr, {
             x: xPos,
@@ -1186,6 +1374,11 @@ export const PdfTools: React.FC = () => {
       else if (activeTool === 'protect') {
         if (!passwordInput) {
           showToast('Please enter a password to protect the document', 'error');
+          setIsProcessing(false);
+          return;
+        }
+        if (confirmPassword && passwordInput !== confirmPassword) {
+          showToast('Passwords do not match', 'error');
           setIsProcessing(false);
           return;
         }
@@ -1305,8 +1498,40 @@ export const PdfTools: React.FC = () => {
           } else {
             img = await doc.embedJpg(imgBytes);
           }
-          const p = doc.addPage([img.width, img.height]);
-          p.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+
+          let pageWidth = img.width;
+          let pageHeight = img.height;
+
+          if (jpgPageSize === 'a4') {
+            pageWidth = 595.28;
+            pageHeight = 841.89;
+          } else if (jpgPageSize === 'letter') {
+            pageWidth = 612;
+            pageHeight = 792;
+          }
+
+          if (jpgOrientation === 'landscape' && pageWidth < pageHeight) {
+            const tmp = pageWidth;
+            pageWidth = pageHeight;
+            pageHeight = tmp;
+          } else if (jpgOrientation === 'portrait' && pageWidth > pageHeight) {
+            const tmp = pageWidth;
+            pageWidth = pageHeight;
+            pageHeight = tmp;
+          }
+
+          const margin = jpgMargin === 'small' ? 20 : jpgMargin === 'big' ? 40 : 0;
+          const availWidth = Math.max(10, pageWidth - margin * 2);
+          const availHeight = Math.max(10, pageHeight - margin * 2);
+
+          const scale = Math.min(availWidth / img.width, availHeight / img.height, 1);
+          const drawW = img.width * scale;
+          const drawH = img.height * scale;
+          const x = margin + (availWidth - drawW) / 2;
+          const y = margin + (availHeight - drawH) / 2;
+
+          const p = doc.addPage([pageWidth, pageHeight]);
+          p.drawImage(img, { x, y, width: drawW, height: drawH });
         }
         const out = await doc.save();
         const blob = new Blob([out], { type: 'application/pdf' });
@@ -1711,37 +1936,45 @@ export const PdfTools: React.FC = () => {
               </div>
             </div>
           ) : (
-            /* Active Tool Config & Upload Interface */
+            /* ======================================================== */
+            /* ILovePDF Split-Screen Workspace / Upload View            */
+            /* ======================================================== */
             <div className="space-y-6">
-              {/* Tool Header Card */}
-              <div className="p-4 sm:p-7 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5 sm:gap-4">
-                <div className="flex items-center gap-3 sm:gap-3.5">
-                  <div className={`w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-md shrink-0 ${currentToolDef.color}`}>
-                    <currentToolDef.icon className="w-5 h-5 sm:w-7 sm:h-7" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg sm:text-2xl font-extrabold text-slate-900 dark:text-white">
-                        {currentToolDef.name}
-                      </h2>
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                        {currentToolDef.category}
-                      </span>
-                    </div>
-                    <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5 max-w-xl">
-                      {currentToolDef.desc}
-                    </p>
+              {/* Zoom Modal Lightbox */}
+              {zoomModalImage && (
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+                  onClick={() => setZoomModalImage(null)}
+                >
+                  <div
+                    className="relative max-w-4xl max-h-[90vh] bg-white dark:bg-surface-900 rounded-3xl overflow-hidden shadow-2xl p-2 sm:p-4 border border-slate-700"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => setZoomModalImage(null)}
+                      className="absolute top-3 right-3 p-2 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white transition-colors z-10 cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                    <img
+                      src={zoomModalImage}
+                      alt="Preview"
+                      className="max-h-[82vh] w-auto object-contain rounded-2xl mx-auto shadow-inner"
+                    />
                   </div>
                 </div>
+              )}
 
-                <div className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 self-start sm:self-auto">
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>100% In-Browser</span>
-                </div>
-              </div>
+              {/* A. Organize PDF Workspace (Dedicated Full-Featured Component) */}
+              {activeTool === 'organize' && (
+                <OrganizePdfWorkspace
+                  initialFiles={uploadedFiles.map((f) => f.file)}
+                  onBackToCatalogue={backToGrid}
+                />
+              )}
 
-              {/* Special Camera Mode for Scan to PDF */}
-              {activeTool === 'scan-pdf' ? (
+              {/* B. Scan to PDF Camera Workspace */}
+              {activeTool === 'scan-pdf' && (
                 <div className="p-5 sm:p-8 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 text-center">
                   <div className="max-w-md mx-auto aspect-[4/3] bg-black rounded-2xl overflow-hidden relative border border-slate-800">
                     <video ref={videoRef} className="w-full h-full object-cover" />
@@ -1778,7 +2011,7 @@ export const PdfTools: React.FC = () => {
                   )}
 
                   {capturedScans.length > 0 && (
-                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-4">
                       <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
                         Captured Page Scans ({capturedScans.length})
                       </span>
@@ -1792,19 +2025,48 @@ export const PdfTools: React.FC = () => {
                           />
                         ))}
                       </div>
+
+                      <div className="pt-2 flex justify-center">
+                        <button
+                          onClick={executeActiveTool}
+                          disabled={isProcessing}
+                          className="flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-rose-500/20 disabled:opacity-50 transition-all active:scale-[0.98]"
+                        >
+                          {isProcessing ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>Compiling Scans...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-4 h-4" />
+                              <span>Create Scanned PDF ({capturedScans.length} pages)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
-              ) : activeTool === 'organize' ? (
-                <OrganizePdfWorkspace
-                  initialFiles={uploadedFiles.map((f) => f.file)}
-                  onBackToCatalogue={backToGrid}
-                />
-              ) : (
-                /* Standard Drag & Drop File Area */
+              )}
+
+              {/* C. Clean Initial Upload State (Zero Files Uploaded) */}
+              {activeTool !== 'organize' && activeTool !== 'scan-pdf' && uploadedFiles.length === 0 && (
                 <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-500 rounded-2xl sm:rounded-3xl p-5 sm:p-12 text-center cursor-pointer bg-white dark:bg-surface-900/50 shadow-sm active:scale-[0.99] transition-all"
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      const files = Array.from(e.dataTransfer.files);
+                      setUploadedFiles(files.map((f) => ({ file: f, name: f.name, size: f.size })));
+                      setProcessedResult(null);
+                    }
+                  }}
+                  className="relative min-h-[500px] rounded-3xl bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center p-8 sm:p-16 text-center space-y-6"
                 >
                   <input
                     ref={fileInputRef}
@@ -1828,283 +2090,265 @@ export const PdfTools: React.FC = () => {
                     onChange={handleFileUpload}
                     className="hidden"
                   />
-                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center justify-center mx-auto mb-3 shadow-2xs">
-                    <Upload className="w-6 h-6 sm:w-7 sm:h-7" />
+
+                  <div className="space-y-3 max-w-2xl mx-auto">
+                    <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                      {currentToolDef.name}
+                    </h1>
+                    <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 max-w-lg mx-auto leading-relaxed">
+                      {currentToolDef.desc}
+                    </p>
                   </div>
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                    Select your{' '}
-                    {activeTool === 'txt-to-pdf'
-                      ? 'Text (.txt) Document'
-                      : activeTool === 'jpg-to-pdf'
-                      ? 'Images'
-                      : 'PDF Document'}
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-                    Tap to browse or drop files here. Instant in-browser execution with complete confidentiality.
-                  </p>
+
+                  {/* Signature ILovePDF Red Select Button */}
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center justify-center gap-3 px-10 py-5 rounded-2xl bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white font-extrabold text-base sm:text-lg shadow-xl shadow-rose-600/30 transition-all cursor-pointer group"
+                    >
+                      <Upload className="w-6 h-6 group-hover:-translate-y-0.5 transition-transform" />
+                      <span>
+                        Select{' '}
+                        {activeTool === 'jpg-to-pdf'
+                          ? 'JPG images'
+                          : activeTool === 'word-to-pdf'
+                          ? 'WORD file'
+                          : activeTool === 'excel-to-pdf'
+                          ? 'EXCEL file'
+                          : activeTool === 'ppt-to-pdf'
+                          ? 'PPT file'
+                          : activeTool === 'txt-to-pdf'
+                          ? 'TXT file'
+                          : activeTool === 'html-to-pdf'
+                          ? 'HTML file'
+                          : 'PDF files'}
+                      </span>
+                    </button>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 font-medium">
+                      or drop {activeTool === 'jpg-to-pdf' ? 'images' : 'PDFs'} here
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center gap-3 pt-6 text-xs text-slate-500 dark:text-slate-400">
+                    <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
+                      <ShieldCheck className="w-4 h-4" /> 100% Client-Side Privacy
+                    </span>
+                    <span>•</span>
+                    <span>Zero Data Leakage</span>
+                    <span>•</span>
+                    <span>No File Limits</span>
+                  </div>
                 </div>
               )}
 
-              {/* Uploaded Files & Specific Controls */}
-              {(uploadedFiles.length > 0 || capturedScans.length > 0) && activeTool !== 'organize' && (
-                <div className="p-4 sm:p-8 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 sm:space-y-5">
-                  {uploadedFiles.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        <span>Selected File(s): {uploadedFiles.length}</span>
+              {/* D. Full ILovePDF 2-Column Split-Screen Workspace (Active Once Files Are Uploaded) */}
+              {activeTool !== 'organize' && activeTool !== 'scan-pdf' && uploadedFiles.length > 0 && (
+                <div className="flex flex-col lg:flex-row min-h-[720px] bg-slate-100 dark:bg-surface-950 rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-md relative">
+                  {/* Hidden file input for adding more files */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple={activeTool === 'merge' || activeTool === 'jpg-to-pdf'}
+                    accept={
+                      activeTool === 'txt-to-pdf'
+                        ? '.txt,.md,.log,.json,.csv,.py,.js,.ts,text/*'
+                        : activeTool === 'jpg-to-pdf'
+                        ? 'image/*'
+                        : activeTool === 'word-to-pdf'
+                        ? '.doc,.docx,text/plain'
+                        : activeTool === 'excel-to-pdf'
+                        ? '.xls,.xlsx,text/csv'
+                        : activeTool === 'ppt-to-pdf'
+                        ? '.ppt,.pptx'
+                        : activeTool === 'html-to-pdf'
+                        ? '.html,.htm,text/html'
+                        : 'application/pdf,.pdf'
+                    }
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+
+                  {/* ======================================================== */}
+                  {/* LEFT / CENTER CANVAS                                     */}
+                  {/* ======================================================== */}
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        const files = Array.from(e.dataTransfer.files);
+                        setUploadedFiles((prev) => [
+                          ...(activeTool === 'merge' || activeTool === 'jpg-to-pdf' ? prev : []),
+                          ...files.map((f) => ({ file: f, name: f.name, size: f.size })),
+                        ]);
+                        setProcessedResult(null);
+                      }
+                    }}
+                    className="flex-1 p-5 sm:p-10 flex flex-col relative overflow-y-auto min-h-[500px] bg-slate-50/70 dark:bg-slate-900/40"
+                  >
+                    {/* Floating Side Action Controls on Canvas */}
+                    <div className="absolute top-5 right-5 z-20 flex flex-col items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        title="Add more files"
+                        className="relative w-12 h-12 rounded-full bg-rose-600 hover:bg-rose-500 active:scale-95 text-white flex items-center justify-center shadow-xl shadow-rose-600/30 transition-all cursor-pointer group"
+                      >
+                        <Plus className="w-6 h-6 stroke-[2.5] group-hover:rotate-90 transition-transform duration-200" />
+                        <span className="absolute -top-1 -right-1 px-1.5 py-0.5 min-w-[20px] text-center rounded-full bg-slate-900 text-[10px] font-extrabold text-white border-2 border-white dark:border-slate-800 shadow-sm">
+                          {uploadedFiles.length}
+                        </span>
+                      </button>
+
+                      {(activeTool === 'merge' || activeTool === 'jpg-to-pdf') && (
                         <button
-                          onClick={() => setUploadedFiles([])}
-                          className="text-rose-500 hover:underline flex items-center gap-1"
+                          type="button"
+                          onClick={sortFilesAlphabetically}
+                          title="Sort A-Z"
+                          className="w-10 h-10 rounded-full bg-white dark:bg-surface-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center shadow-md transition-all active:scale-95 cursor-pointer"
                         >
-                          <Trash2 className="w-3.5 h-3.5" /> Clear All
+                          <SortAsc className="w-4 h-4" />
                         </button>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        {uploadedFiles.map((item, idx) => (
-                          <div
-                            key={idx}
-                            className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 text-xs"
-                          >
-                            <div className="flex items-center gap-2.5 truncate">
-                              <FileText className="w-4 h-4 text-brand-500 shrink-0" />
-                              <span className="font-semibold text-slate-900 dark:text-white truncate">
-                                {item.name}
-                              </span>
-                              <span className="text-slate-400">({(item.size / 1024).toFixed(1)} KB)</span>
-                            </div>
-                            <button
-                              onClick={() => setUploadedFiles(uploadedFiles.filter((_, i) => i !== idx))}
-                              className="p-1 text-slate-400 hover:text-rose-500 shrink-0"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                      )}
                     </div>
-                  )}
 
-                  {/* OCR Tool Specific Options */}
-                  {activeTool === 'ocr' && (
-                    <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 space-y-3">
-                      <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                        <ScanText className="w-4 h-4" />
-                        <span>OCR Engine Configuration</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                        <div>
-                          <label className="text-slate-700 dark:text-slate-300 block mb-1 font-semibold">
-                            Document Language
-                          </label>
-                          <select
-                            value={ocrLanguage}
-                            onChange={(e) => setOcrLanguage(e.target.value as any)}
-                            className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
-                          >
-                            <option value="English">English (Auto Detect)</option>
-                            <option value="Spanish">Spanish (Español)</option>
-                            <option value="French">French (Français)</option>
-                            <option value="German">German (Deutsch)</option>
-                            <option value="Hindi">Hindi (हिन्दी)</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-slate-700 dark:text-slate-300 block mb-1 font-semibold">
-                            Output Structure
-                          </label>
-                          <select
-                            value={ocrMode}
-                            onChange={(e) => setOcrMode(e.target.value as any)}
-                            className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
-                          >
-                            <option value="searchable_pdf">Searchable PDF (Embedded text layer)</option>
-                            <option value="text_only">Extract text transcript (.txt)</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                    {/* CANVAS CONTENT: TOOL SPECIFIC CARD VISUALIZATION */}
+                    <div className="flex-1 flex flex-col justify-center">
+                      {/* 1. MERGE PDF CANVAS: File Cards with cover thumbnail & hover tools */}
+                      {activeTool === 'merge' && (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 p-2">
+                            {uploadedFiles.map((item, idx) => (
+                              <div
+                                key={idx}
+                                className="group relative bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 shadow-md hover:shadow-xl hover:border-slate-300 dark:hover:border-slate-600 transition-all flex flex-col justify-between"
+                              >
+                                {/* Card Hover Tools Strip */}
+                                <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 dark:bg-surface-900/90 backdrop-blur-xs p-1 rounded-xl shadow-md border border-slate-200 dark:border-slate-700">
+                                  {fileThumbnails[item.name] && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setZoomModalImage(fileThumbnails[item.name])}
+                                      title="Zoom preview"
+                                      className="p-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    >
+                                      <ZoomIn className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setUploadedFiles(uploadedFiles.filter((_, i) => i !== idx))}
+                                    title="Remove file"
+                                    className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
 
-                  {/* TXT to PDF Specific Options */}
-                  {activeTool === 'txt-to-pdf' && (
-                    <div className="p-4 rounded-2xl bg-teal-500/5 border border-teal-500/20 space-y-3">
-                      <div className="flex items-center gap-2 text-xs font-bold text-teal-800 dark:text-teal-300">
-                        <FileText className="w-4 h-4" />
-                        <span>TXT to PDF Formatting Options</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                        <div>
-                          <label className="text-slate-700 dark:text-slate-300 block mb-1 font-semibold">
-                            Typography Font
-                          </label>
-                          <select
-                            value={txtFontFamily}
-                            onChange={(e) => setTxtFontFamily(e.target.value as any)}
-                            className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
-                          >
-                            <option value="Courier">Courier (Monospace / Code)</option>
-                            <option value="Helvetica">Helvetica (Clean Sans)</option>
-                            <option value="TimesRoman">Times New Roman (Serif)</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-slate-700 dark:text-slate-300 block mb-1 font-semibold">
-                            Font Size
-                          </label>
-                          <select
-                            value={txtFontSize}
-                            onChange={(e) => setTxtFontSize(Number(e.target.value))}
-                            className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
-                          >
-                            <option value={9}>Small (9 pt)</option>
-                            <option value={10}>Standard (10 pt)</option>
-                            <option value={12}>Large (12 pt)</option>
-                            <option value={14}>Extra Large (14 pt)</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-slate-700 dark:text-slate-300 block mb-1 font-semibold">
-                            Page Styling
-                          </label>
-                          <label className="flex items-center gap-2 pt-1.5 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={txtIncludeHeader}
-                              onChange={(e) => setTxtIncludeHeader(e.target.checked)}
-                              className="w-4 h-4 text-teal-600 rounded"
-                            />
-                            <span className="text-slate-700 dark:text-slate-300 text-xs font-medium">
-                              Include filename header & line
-                            </span>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                                {/* Thumbnail Area */}
+                                <div className="aspect-[3/4] w-full bg-slate-50 dark:bg-slate-800/60 rounded-xl overflow-hidden flex items-center justify-center p-2 border border-slate-100 dark:border-slate-800 relative">
+                                  {fileThumbnails[item.name] ? (
+                                    <img
+                                      src={fileThumbnails[item.name]}
+                                      alt={item.name}
+                                      className="max-h-full max-w-full object-contain rounded-lg shadow-sm"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex flex-col items-center justify-center space-y-2 text-slate-400">
+                                      <FileText className="w-10 h-10 text-rose-500 opacity-60" />
+                                      <span className="text-[11px] font-mono">PDF Document</span>
+                                    </div>
+                                  )}
+                                </div>
 
-                  {/* SPLIT PDF / EXTRACT PAGES ENHANCED WORKSPACE */}
-                  {(activeTool === 'split' || activeTool === 'extract-pages') && (
-                    <div className="space-y-4 p-5 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                      {/* Top mode switch & total page stats */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-700/80">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                              <Scissors className="w-3.5 h-3.5 text-rose-500" />
-                              <span>Split Configuration</span>
-                            </span>
-                            {docPages.length > 0 && (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                                {docPages.length} Pages Total
-                              </span>
-                            )}
+                                {/* Footer info and order changer */}
+                                <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                                  <div className="truncate mr-2">
+                                    <p className="font-bold text-slate-900 dark:text-white truncate" title={item.name}>
+                                      {item.name}
+                                    </p>
+                                    <span className="text-[10px] text-slate-400">
+                                      {(item.size / 1024).toFixed(1)} KB
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      disabled={idx === 0}
+                                      onClick={() => moveFileOrder(idx, 'left')}
+                                      className="p-1 rounded-md text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-20"
+                                      title="Move Left"
+                                    >
+                                      <ChevronLeft className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={idx === uploadedFiles.length - 1}
+                                      onClick={() => moveFileOrder(idx, 'right')}
+                                      className="p-1 rounded-md text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-20"
+                                      title="Move Right"
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                            Pick the exact pages you want to keep or specify custom page ranges.
-                          </p>
                         </div>
+                      )}
 
-                        {/* Mode Switcher Tabs */}
-                        <div className="grid grid-cols-3 sm:flex p-1 rounded-xl bg-slate-200/80 dark:bg-slate-800 border border-slate-300/60 dark:border-slate-700 text-xs font-semibold w-full sm:w-auto text-center">
-                          <button
-                            type="button"
-                            onClick={() => setSplitTabMode('visual')}
-                            className={`px-2 sm:px-3 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 text-[11px] sm:text-xs ${
-                              splitTabMode === 'visual'
-                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-bold'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <span className="hidden sm:inline">Visual Page Picker</span>
-                            <span className="sm:hidden">Visual Picker</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSplitTabMode('range')}
-                            className={`px-2 sm:px-3 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 text-[11px] sm:text-xs ${
-                              splitTabMode === 'range'
-                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-bold'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <span className="hidden sm:inline">Custom Range</span>
-                            <span className="sm:hidden">Page Range</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSplitTabMode('all');
-                              selectAllPages();
-                            }}
-                            className={`px-2 sm:px-3 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 text-[11px] sm:text-xs ${
-                              splitTabMode === 'all'
-                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-bold'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <span className="hidden sm:inline">Extract All Pages</span>
-                            <span className="sm:hidden">All Pages</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* MODE 1: VISUAL PAGE PICKER */}
-                      {splitTabMode === 'visual' && (
-                        <div className="space-y-3">
-                          {/* Quick selection toolstrip */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
-                            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                              Click any page below to select/deselect:
-                            </span>
-
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={selectAllPages}
-                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs"
-                              >
-                                Select All
-                              </button>
-                              <button
-                                type="button"
-                                onClick={deselectAllPages}
-                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs"
-                              >
-                                Deselect All
-                              </button>
-                              <button
-                                type="button"
-                                onClick={selectOddPages}
-                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs"
-                              >
-                                Odd Pages
-                              </button>
-                              <button
-                                type="button"
-                                onClick={selectEvenPages}
-                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs"
-                              >
-                                Even Pages
-                              </button>
-                              <button
-                                type="button"
-                                onClick={invertPageSelection}
-                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs"
-                              >
-                                Invert
-                              </button>
+                      {/* 2. SPLIT PDF CANVAS: Range Group Boxes or Visual Pages Grid */}
+                      {(activeTool === 'split' || activeTool === 'extract-pages') && (
+                        <div className="space-y-6">
+                          {splitMainTab === 'range' ? (
+                            <div className="space-y-5">
+                              {splitRanges.map((rng, rIdx) => (
+                                <div key={rng.id} className="space-y-2">
+                                  <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                                    <span>Range {rIdx + 1}</span>
+                                    <span className="text-[11px] text-slate-400">
+                                      Pages {rng.from} to {rng.to}
+                                    </span>
+                                  </div>
+                                  <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-3xl p-5 bg-white/60 dark:bg-surface-900/60 shadow-sm flex flex-wrap gap-4 items-center min-h-[160px]">
+                                    {docPages
+                                      .filter((p) => p.pageNumber >= rng.from && p.pageNumber <= rng.to)
+                                      .map((page) => (
+                                        <div
+                                          key={page.pageNumber}
+                                          className="aspect-[3/4] w-28 sm:w-32 bg-white dark:bg-surface-800 rounded-xl p-2 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between"
+                                        >
+                                          <div className="flex-1 flex items-center justify-center overflow-hidden">
+                                            {pageThumbnails[page.pageNumber] ? (
+                                              <img
+                                                src={pageThumbnails[page.pageNumber]}
+                                                alt={`Page ${page.pageNumber}`}
+                                                className="max-h-full max-w-full object-contain rounded-md"
+                                              />
+                                            ) : (
+                                              <div className="text-center font-mono text-xs text-slate-300 dark:text-slate-600">
+                                                Page {page.pageNumber}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div className="text-center text-[10px] font-bold text-slate-600 dark:text-slate-300 pt-1">
+                                            {page.pageNumber}
+                                          </div>
+                                        </div>
+                                      ))}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          </div>
-
-                          {/* Visual Grid of Pages */}
-                          {isAnalyzingPdf ? (
-                            <div className="py-12 text-center text-slate-400 space-y-2">
-                              <Loader2 className="w-6 h-6 animate-spin mx-auto text-rose-500" />
-                              <p className="text-xs">Analyzing PDF pages and structure...</p>
-                            </div>
-                          ) : docPages.length > 0 ? (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 pt-2 max-h-96 overflow-y-auto pr-1">
+                          ) : (
+                            /* Visual Pages Tab */
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 max-h-[600px] overflow-y-auto pr-1">
                               {docPages.map((page) => {
                                 const isSelected = selectedPageNumbers.includes(page.pageNumber);
                                 return (
@@ -2113,415 +2357,1254 @@ export const PdfTools: React.FC = () => {
                                     onClick={() => toggleSplitPage(page.pageNumber)}
                                     className={`group relative cursor-pointer rounded-2xl border-2 p-3 transition-all flex flex-col justify-between ${
                                       isSelected
-                                        ? 'border-rose-500 bg-rose-50/60 dark:bg-rose-950/30 shadow-sm ring-2 ring-rose-500/20'
-                                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-800/80 hover:border-slate-300 dark:hover:border-slate-700 opacity-60 hover:opacity-100'
+                                        ? 'border-rose-500 bg-rose-50/60 dark:bg-rose-950/30 shadow-md ring-2 ring-rose-500/20'
+                                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-800/80 hover:border-slate-300 opacity-60 hover:opacity-100'
                                     }`}
                                   >
-                                    <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center justify-between mb-1.5 text-xs">
                                       <span
-                                        className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md ${
-                                          isSelected
-                                            ? 'bg-rose-600 text-white'
-                                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                                        className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                                          isSelected ? 'bg-rose-600 text-white' : 'text-slate-400'
                                         }`}
                                       >
                                         Page {page.pageNumber}
                                       </span>
                                       <div
-                                        className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors ${
+                                        className={`w-4 h-4 rounded-md flex items-center justify-center transition-colors ${
                                           isSelected
                                             ? 'bg-rose-600 text-white'
                                             : 'border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
                                         }`}
                                       >
-                                        {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                                        {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
                                       </div>
                                     </div>
 
-                                    {/* Document Sheet Graphic */}
-                                    <div className="aspect-[3/4] w-full rounded-lg bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-700 p-2.5 flex flex-col justify-between shadow-2xs">
-                                      <div className="space-y-1.5 opacity-60">
-                                        <div className="h-1.5 w-3/4 rounded-full bg-slate-400 dark:bg-slate-500" />
-                                        <div className="h-1 w-full rounded-full bg-slate-300 dark:bg-slate-700" />
-                                        <div className="h-1 w-5/6 rounded-full bg-slate-300 dark:bg-slate-700" />
-                                        <div className="h-1 w-2/3 rounded-full bg-slate-300 dark:bg-slate-700" />
-                                      </div>
-                                      <div className="text-center font-bold text-xs text-slate-300 dark:text-slate-600 font-mono select-none">
-                                        {page.pageNumber}
-                                      </div>
-                                      <div className="space-y-1 opacity-40">
-                                        <div className="h-1 w-full rounded-full bg-slate-300 dark:bg-slate-700" />
-                                        <div className="h-1 w-1/2 rounded-full bg-slate-300 dark:bg-slate-700" />
-                                      </div>
-                                    </div>
-
-                                    <div className="mt-2 text-center text-[10px] text-slate-400 dark:text-slate-500 font-mono">
-                                      {page.isLandscape ? 'Landscape' : 'Portrait'} ({page.width}×{page.height})
+                                    <div className="aspect-[3/4] w-full rounded-lg bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-700 p-1 flex items-center justify-center overflow-hidden">
+                                      {pageThumbnails[page.pageNumber] ? (
+                                        <img
+                                          src={pageThumbnails[page.pageNumber]}
+                                          alt={`Page ${page.pageNumber}`}
+                                          className="max-h-full max-w-full object-contain rounded-md"
+                                        />
+                                      ) : (
+                                        <span className="text-xs font-mono text-slate-400">
+                                          {page.pageNumber}
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
                                 );
                               })}
                             </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 3. REMOVE PAGES CANVAS: Clickable page thumbnails with big red X overlay */}
+                      {activeTool === 'remove-pages' && (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 max-h-[620px] overflow-y-auto pr-1">
+                            {docPages.map((page) => {
+                              const isDeleted = pagesToDelete.includes(page.pageNumber);
+                              return (
+                                <div
+                                  key={page.pageNumber}
+                                  onClick={() => togglePageToDelete(page.pageNumber)}
+                                  className={`group relative cursor-pointer rounded-2xl border-2 p-3 transition-all flex flex-col justify-between ${
+                                    isDeleted
+                                      ? 'border-dashed border-rose-500 bg-rose-50/50 dark:bg-rose-950/30 ring-2 ring-rose-500/20'
+                                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-900 hover:border-slate-300 shadow-sm'
+                                  }`}
+                                >
+                                  <div className="aspect-[3/4] w-full rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center relative overflow-hidden p-1.5 border border-slate-100 dark:border-slate-800">
+                                    {pageThumbnails[page.pageNumber] ? (
+                                      <img
+                                        src={pageThumbnails[page.pageNumber]}
+                                        alt={`Page ${page.pageNumber}`}
+                                        className={`max-h-full max-w-full object-contain rounded-lg transition-opacity ${
+                                          isDeleted ? 'opacity-30 grayscale' : ''
+                                        }`}
+                                      />
+                                    ) : (
+                                      <span
+                                        className={`text-xs font-mono font-bold text-slate-400 ${
+                                          isDeleted ? 'opacity-30' : ''
+                                        }`}
+                                      >
+                                        Page {page.pageNumber}
+                                      </span>
+                                    )}
+
+                                    {/* Big Prominent Red X Overlay (Matching ILovePDF Image 2) */}
+                                    {isDeleted && (
+                                      <div className="absolute inset-0 flex items-center justify-center bg-rose-600/10 backdrop-blur-[1px]">
+                                        <X className="w-14 h-14 text-rose-600 stroke-[3] drop-shadow-md animate-in zoom-in-75 duration-150" />
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="mt-2 text-center text-xs font-bold text-slate-700 dark:text-slate-300">
+                                    Page {page.pageNumber}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 4. ROTATE PDF CANVAS: Real-time rotation transform & hover controls */}
+                      {activeTool === 'rotate' && (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-h-[620px] overflow-y-auto pr-1">
+                            {docPages.map((page) => (
+                              <div
+                                key={page.pageNumber}
+                                className="group relative bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-md flex flex-col justify-between"
+                              >
+                                {/* Card Hover Tools Strip */}
+                                <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 dark:bg-surface-900/90 backdrop-blur-xs p-1 rounded-xl shadow-md border border-slate-200 dark:border-slate-700">
+                                  {pageThumbnails[page.pageNumber] && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setZoomModalImage(pageThumbnails[page.pageNumber])}
+                                      title="Zoom preview"
+                                      className="p-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    >
+                                      <ZoomIn className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setRotationDegrees((prev) => (prev + 90) % 360)}
+                                    title="Rotate 90°"
+                                    className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                  >
+                                    <RotateCw className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+
+                                <div className="aspect-[3/4] w-full bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center p-2 overflow-hidden border border-slate-100 dark:border-slate-800">
+                                  <div
+                                    style={{
+                                      transform: `rotate(${rotationDegrees}deg)`,
+                                      transition: 'transform 0.3s ease',
+                                    }}
+                                    className="max-h-full max-w-full flex items-center justify-center"
+                                  >
+                                    {pageThumbnails[page.pageNumber] ? (
+                                      <img
+                                        src={pageThumbnails[page.pageNumber]}
+                                        alt={`Page ${page.pageNumber}`}
+                                        className="max-h-full max-w-full object-contain rounded-md shadow-sm"
+                                      />
+                                    ) : (
+                                      <span className="text-xs font-mono font-bold text-slate-400">
+                                        Page {page.pageNumber}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="mt-2 text-center text-xs font-bold text-slate-700 dark:text-slate-300">
+                                  Page {page.pageNumber}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 5. PAGE NUMBERS CANVAS: Real-time red indicator dot positioned via 3x3 picker */}
+                      {activeTool === 'page-numbers' && (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 max-h-[620px] overflow-y-auto pr-1">
+                            {docPages.map((page) => (
+                              <div
+                                key={page.pageNumber}
+                                className="group relative bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-md flex flex-col justify-between"
+                              >
+                                <div className="aspect-[3/4] w-full bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center p-2 overflow-hidden border border-slate-100 dark:border-slate-800 relative">
+                                  {pageThumbnails[page.pageNumber] ? (
+                                    <img
+                                      src={pageThumbnails[page.pageNumber]}
+                                      alt={`Page ${page.pageNumber}`}
+                                      className="max-h-full max-w-full object-contain rounded-md"
+                                    />
+                                  ) : (
+                                    <span className="text-xs font-mono font-bold text-slate-400">
+                                      Page {page.pageNumber}
+                                    </span>
+                                  )}
+
+                                  {/* Live Red Indicator Dot Overlay (Matching ILovePDF Image 19) */}
+                                  <div
+                                    className={`absolute ${
+                                      pageNumberPosGrid === 'top_left'
+                                        ? 'top-2.5 left-2.5'
+                                        : pageNumberPosGrid === 'top_center'
+                                        ? 'top-2.5 left-1/2 -translate-x-1/2'
+                                        : pageNumberPosGrid === 'top_right'
+                                        ? 'top-2.5 right-2.5'
+                                        : pageNumberPosGrid === 'middle_left'
+                                        ? 'top-1/2 left-2.5 -translate-y-1/2'
+                                        : pageNumberPosGrid === 'middle_center'
+                                        ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
+                                        : pageNumberPosGrid === 'middle_right'
+                                        ? 'top-1/2 right-2.5 -translate-y-1/2'
+                                        : pageNumberPosGrid === 'bottom_left'
+                                        ? 'bottom-2.5 left-2.5'
+                                        : pageNumberPosGrid === 'bottom_center'
+                                        ? 'bottom-2.5 left-1/2 -translate-x-1/2'
+                                        : 'bottom-2.5 right-2.5'
+                                    } w-3.5 h-3.5 rounded-full bg-rose-600 shadow-md ring-2 ring-white dark:ring-surface-900 animate-pulse`}
+                                  />
+                                </div>
+
+                                <div className="mt-2 text-center text-xs font-bold text-slate-700 dark:text-slate-300">
+                                  Page {page.pageNumber}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 6. WATERMARK CANVAS: Live watermark position and text overlay */}
+                      {activeTool === 'watermark' && (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 max-h-[620px] overflow-y-auto pr-1">
+                            {docPages.map((page) => (
+                              <div
+                                key={page.pageNumber}
+                                className="group relative bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-md flex flex-col justify-between"
+                              >
+                                <div className="aspect-[3/4] w-full bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center p-2 overflow-hidden border border-slate-100 dark:border-slate-800 relative">
+                                  {pageThumbnails[page.pageNumber] ? (
+                                    <img
+                                      src={pageThumbnails[page.pageNumber]}
+                                      alt={`Page ${page.pageNumber}`}
+                                      className="max-h-full max-w-full object-contain rounded-md"
+                                    />
+                                  ) : (
+                                    <span className="text-xs font-mono font-bold text-slate-400">
+                                      Page {page.pageNumber}
+                                    </span>
+                                  )}
+
+                                  {/* Live Watermark Overlay (Matching ILovePDF Image 20) */}
+                                  {watermarkMosaic ? (
+                                    <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 p-2 pointer-events-none opacity-40">
+                                      {Array.from({ length: 4 }).map((_, i) => (
+                                        <div
+                                          key={i}
+                                          className="text-[9px] font-extrabold text-rose-600 uppercase flex items-center justify-center rotate-[-30deg]"
+                                        >
+                                          {watermarkText || 'WATERMARK'}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div
+                                      className={`absolute ${
+                                        watermarkPos === 'top_left'
+                                          ? 'top-2.5 left-2.5'
+                                          : watermarkPos === 'top_center'
+                                          ? 'top-2.5 left-1/2 -translate-x-1/2'
+                                          : watermarkPos === 'top_right'
+                                          ? 'top-2.5 right-2.5'
+                                          : watermarkPos === 'middle_left'
+                                          ? 'top-1/2 left-2.5 -translate-y-1/2'
+                                          : watermarkPos === 'middle_center'
+                                          ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
+                                          : watermarkPos === 'middle_right'
+                                          ? 'top-1/2 right-2.5 -translate-y-1/2'
+                                          : watermarkPos === 'bottom_left'
+                                          ? 'bottom-2.5 left-2.5'
+                                          : watermarkPos === 'bottom_center'
+                                          ? 'bottom-2.5 left-1/2 -translate-x-1/2'
+                                          : 'bottom-2.5 right-2.5'
+                                      } w-4 h-4 rounded-full bg-rose-600 shadow-md ring-2 ring-white dark:ring-surface-900 animate-pulse`}
+                                    />
+                                  )}
+                                </div>
+
+                                <div className="mt-2 text-center text-xs font-bold text-slate-700 dark:text-slate-300">
+                                  Page {page.pageNumber}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 7. IMAGE TO PDF CANVAS: Image thumbnails grid with reordering */}
+                      {activeTool === 'jpg-to-pdf' && (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 max-h-[620px] overflow-y-auto pr-1">
+                            {uploadedFiles.map((item, idx) => (
+                              <div
+                                key={idx}
+                                className="group relative bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-md flex flex-col justify-between"
+                              >
+                                <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 dark:bg-surface-900/90 backdrop-blur-xs p-1 rounded-xl shadow-md border border-slate-200 dark:border-slate-700">
+                                  {fileThumbnails[item.name] && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setZoomModalImage(fileThumbnails[item.name])}
+                                      title="Zoom preview"
+                                      className="p-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    >
+                                      <ZoomIn className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setUploadedFiles(uploadedFiles.filter((_, i) => i !== idx))}
+                                    title="Remove image"
+                                    className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+
+                                <div className="aspect-[3/4] w-full bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center p-2 overflow-hidden border border-slate-100 dark:border-slate-800">
+                                  {fileThumbnails[item.name] ? (
+                                    <img
+                                      src={fileThumbnails[item.name]}
+                                      alt={item.name}
+                                      className="max-h-full max-w-full object-contain rounded-md"
+                                    />
+                                  ) : (
+                                    <ImageIcon className="w-8 h-8 text-slate-400" />
+                                  )}
+                                </div>
+
+                                <div className="mt-2 text-center text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">
+                                  {item.name}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 8. SINGLE DOCUMENT PREVIEW CANVAS (Compress, OCR, Protect, Unlock, Conversions) */}
+                      {activeTool !== 'merge' &&
+                        activeTool !== 'split' &&
+                        activeTool !== 'extract-pages' &&
+                        activeTool !== 'remove-pages' &&
+                        activeTool !== 'rotate' &&
+                        activeTool !== 'page-numbers' &&
+                        activeTool !== 'watermark' &&
+                        activeTool !== 'jpg-to-pdf' && (
+                          <div className="max-w-sm mx-auto w-full bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-3xl p-6 shadow-xl flex flex-col items-center space-y-4">
+                            <div className="aspect-[3/4] w-48 sm:w-56 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center p-3 border border-slate-100 dark:border-slate-800 relative group overflow-hidden shadow-inner">
+                              {fileThumbnails[uploadedFiles[0]?.name] ? (
+                                <img
+                                  src={fileThumbnails[uploadedFiles[0]?.name]}
+                                  alt={uploadedFiles[0]?.name}
+                                  className="max-h-full max-w-full object-contain rounded-xl"
+                                />
+                              ) : (
+                                <FileText className="w-16 h-16 text-rose-500 opacity-60" />
+                              )}
+
+                              {fileThumbnails[uploadedFiles[0]?.name] && (
+                                <button
+                                  type="button"
+                                  onClick={() => setZoomModalImage(fileThumbnails[uploadedFiles[0]?.name])}
+                                  className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white gap-1.5 text-xs font-semibold"
+                                >
+                                  <ZoomIn className="w-5 h-5" />
+                                  <span>Preview</span>
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="text-center space-y-1 w-full truncate">
+                              <h4 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white truncate">
+                                {uploadedFiles[0]?.name}
+                              </h4>
+                              <p className="text-xs text-slate-400 font-mono">
+                                {(uploadedFiles[0]?.size / 1024).toFixed(1)} KB
+                                {docPages.length > 0 && ` • ${docPages.length} Pages`}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                    </div>
+                  </div>
+
+                  {/* ======================================================== */}
+                  {/* RIGHT STICKY SIDEBAR                                     */}
+                  {/* ======================================================== */}
+                  <div className="w-full lg:w-88 xl:w-96 bg-white dark:bg-surface-900 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 p-6 flex flex-col justify-between shrink-0 shadow-sm space-y-6">
+                    {/* Top Sidebar Options Controls */}
+                    <div className="space-y-5">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                        <h3 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                          {currentToolDef.name}
+                        </h3>
+                        <span className="text-xs font-semibold text-slate-400">
+                          {uploadedFiles.length} file(s)
+                        </span>
+                      </div>
+
+                      {/* Info Banner Callout matching ILovePDF Style */}
+                      <div className="p-3.5 rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/60 text-xs text-sky-800 dark:text-sky-300 flex items-start gap-2.5 leading-relaxed">
+                        <Info className="w-4 h-4 shrink-0 mt-0.5 text-sky-600 dark:text-sky-400" />
+                        <div>
+                          {activeTool === 'merge' &&
+                            'To change the order of your PDFs, use the arrow buttons or drag cards on the canvas.'}
+                          {activeTool === 'split' &&
+                            'Define page ranges to extract independent PDF documents or merge them together.'}
+                          {activeTool === 'remove-pages' &&
+                            'Click on pages in the canvas to mark them for removal. Marked pages will be deleted.'}
+                          {activeTool === 'compress' &&
+                            'Extreme compression reduces size drastically. Recommended gives the best balance.'}
+                          {activeTool === 'rotate' &&
+                            'Mouse over pages in the canvas or use the 90° rotation buttons below.'}
+                          {activeTool === 'page-numbers' &&
+                            'Use the 3x3 position grid to place page numbers exactly where you want them.'}
+                          {activeTool === 'watermark' &&
+                            'Customize watermark text, opacity, and live position overlay across all pages.'}
+                          {activeTool === 'jpg-to-pdf' &&
+                            'Set page orientation, page margins, and combine multiple images into a single PDF.'}
+                          {activeTool === 'protect' &&
+                            'Encrypt your document with AES-256 client-side protection.'}
+                          {activeTool === 'unlock' &&
+                            'Remove password security from your PDF file so it can be viewed freely.'}
+                          {activeTool === 'ocr' &&
+                            'The accuracy of detection is increased by correctly selecting the document language.'}
+                          {activeTool === 'repair' &&
+                            'We will rebuild damaged xref tables and recover readable text streams.'}
+                          {activeTool !== 'merge' &&
+                            activeTool !== 'split' &&
+                            activeTool !== 'remove-pages' &&
+                            activeTool !== 'compress' &&
+                            activeTool !== 'rotate' &&
+                            activeTool !== 'page-numbers' &&
+                            activeTool !== 'watermark' &&
+                            activeTool !== 'jpg-to-pdf' &&
+                            activeTool !== 'protect' &&
+                            activeTool !== 'unlock' &&
+                            activeTool !== 'ocr' &&
+                            activeTool !== 'repair' &&
+                            'Instant local processing inside your browser sandbox with complete confidentiality.'}
+                        </div>
+                      </div>
+
+                      {/* TOOL SPECIFIC SIDEBAR SETTINGS */}
+
+                      {/* SPLIT PDF SIDEBAR */}
+                      {(activeTool === 'split' || activeTool === 'extract-pages') && (
+                        <div className="space-y-4">
+                          {/* Range vs Pages Tab */}
+                          <div className="grid grid-cols-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-center">
+                            <button
+                              type="button"
+                              onClick={() => setSplitMainTab('range')}
+                              className={`py-2 rounded-lg transition-all ${
+                                splitMainTab === 'range'
+                                  ? 'bg-white dark:bg-surface-900 text-slate-900 dark:text-white shadow-sm'
+                                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              Range
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSplitMainTab('pages')}
+                              className={`py-2 rounded-lg transition-all ${
+                                splitMainTab === 'pages'
+                                  ? 'bg-white dark:bg-surface-900 text-slate-900 dark:text-white shadow-sm'
+                                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              Pages
+                            </button>
+                          </div>
+
+                          {splitMainTab === 'range' ? (
+                            <div className="space-y-3.5">
+                              <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                  Range mode:
+                                </label>
+                                <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSplitRangeMode('custom')}
+                                    className={`py-2 px-3 rounded-xl border text-center transition-all ${
+                                      splitRangeMode === 'custom'
+                                        ? 'border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 font-bold'
+                                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    Custom
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSplitRangeMode('fixed')}
+                                    className={`py-2 px-3 rounded-xl border text-center transition-all ${
+                                      splitRangeMode === 'fixed'
+                                        ? 'border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 font-bold'
+                                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    Fixed
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Range definitions list */}
+                              <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
+                                {splitRanges.map((rng, rIdx) => (
+                                  <div
+                                    key={rng.id}
+                                    className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs space-y-2"
+                                  >
+                                    <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-300">
+                                      <span>Range {rIdx + 1}</span>
+                                      {splitRanges.length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => removeSplitRange(rng.id)}
+                                          className="text-rose-500 hover:underline text-[11px]"
+                                        >
+                                          Remove
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="text-[10px] text-slate-400 block mb-0.5">
+                                          from page
+                                        </label>
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          max={docPages.length || 999}
+                                          value={rng.from}
+                                          onChange={(e) =>
+                                            updateSplitRange(rng.id, 'from', Number(e.target.value))
+                                          }
+                                          className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] text-slate-400 block mb-0.5">
+                                          to
+                                        </label>
+                                        <input
+                                          type="number"
+                                          min={rng.from}
+                                          max={docPages.length || 999}
+                                          value={rng.to}
+                                          onChange={(e) =>
+                                            updateSplitRange(rng.id, 'to', Number(e.target.value))
+                                          }
+                                          className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={addSplitRange}
+                                className="w-full py-2 rounded-xl border border-dashed border-rose-400 dark:border-rose-600 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-xs font-bold transition-colors"
+                              >
+                                + Add Range
+                              </button>
+
+                              <label className="flex items-center gap-2 pt-1 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={splitMergeAll}
+                                  onChange={(e) => setSplitMergeAll(e.target.checked)}
+                                  className="w-4 h-4 text-rose-600 rounded accent-rose-600"
+                                />
+                                <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                                  Merge all ranges in one PDF file.
+                                </span>
+                              </label>
+                            </div>
                           ) : (
-                            <div className="p-4 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs text-slate-500 text-center">
-                              Please upload a PDF file above to preview pages.
+                            /* Pages Tab Options */
+                            <div className="space-y-3.5">
+                              <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                  Extract mode:
+                                </label>
+                                <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSplitExtractMode('all');
+                                      selectAllPages();
+                                    }}
+                                    className={`py-2 px-3 rounded-xl border text-center transition-all ${
+                                      splitExtractMode === 'all'
+                                        ? 'border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 font-bold'
+                                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    Extract all pages
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSplitExtractMode('select')}
+                                    className={`py-2 px-3 rounded-xl border text-center transition-all ${
+                                      splitExtractMode === 'select'
+                                        ? 'border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 font-bold'
+                                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    Select pages
+                                  </button>
+                                </div>
+                              </div>
+
+                              {splitExtractMode === 'select' && (
+                                <div>
+                                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                    Pages to extract:
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={splitExtractPagesInput}
+                                    onChange={(e) => {
+                                      setSplitExtractPagesInput(e.target.value);
+                                      handleSplitRangeChange(e.target.value);
+                                    }}
+                                    placeholder="example: 1, 3-5"
+                                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                                  />
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
                       )}
 
-                      {/* MODE 2: CUSTOM RANGE */}
-                      {splitTabMode === 'range' && (
-                        <div className="space-y-3 pt-1">
+                      {/* REMOVE PAGES SIDEBAR */}
+                      {activeTool === 'remove-pages' && (
+                        <div className="space-y-4">
+                          <div className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                            Total pages: {docPages.length || 0}
+                          </div>
+
                           <div>
-                            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                              Enter Page Ranges to Extract (Comma-separated)
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Pages to remove:
                             </label>
                             <input
                               type="text"
-                              value={splitRange}
-                              onChange={(e) => handleSplitRangeChange(e.target.value)}
-                              placeholder="e.g. 1-3, 5, 8-10"
-                              className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                              value={pagesToDelete.join(', ')}
+                              readOnly
+                              placeholder="Click pages on the left canvas to remove"
+                              className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-rose-600 font-bold"
                             />
+                            <p className="text-[11px] text-slate-400 mt-1">
+                              {pagesToDelete.length} page(s) marked with red ✕ on canvas.
+                            </p>
                           </div>
 
-                          {/* Quick syntax chips */}
-                          {docPages.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                              <span className="text-slate-400">Quick ranges:</span>
-                              <button
-                                type="button"
-                                onClick={() => handleSplitRangeChange('1')}
-                                className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-rose-400"
-                              >
-                                First page (1)
-                              </button>
-                              {docPages.length > 2 && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleSplitRangeChange(`1-${Math.ceil(docPages.length / 2)}`)}
-                                  className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-rose-400"
-                                >
-                                  First half (1-{Math.ceil(docPages.length / 2)})
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleSplitRangeChange(`1-${docPages.length}`)}
-                                className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-rose-400"
-                              >
-                                All pages (1-{docPages.length})
-                              </button>
-                            </div>
+                          {pagesToDelete.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setPagesToDelete([])}
+                              className="text-xs text-rose-500 hover:underline font-semibold"
+                            >
+                              Reset selection (keep all)
+                            </button>
                           )}
                         </div>
                       )}
 
-                      {/* MODE 3: EXTRACT ALL PAGES */}
-                      {splitTabMode === 'all' && (
-                        <div className="p-4 rounded-xl bg-rose-500/5 border border-rose-500/20 text-xs space-y-1">
-                          <p className="font-semibold text-rose-800 dark:text-rose-300">
-                            Extract All {docPages.length || 'N'} Pages
-                          </p>
-                          <p className="text-slate-600 dark:text-slate-400 text-[11px]">
-                            Every page of your document will be included in the extracted output bundle.
-                          </p>
-                        </div>
-                      )}
+                      {/* COMPRESS PDF SIDEBAR */}
+                      {activeTool === 'compress' && (
+                        <div className="space-y-3">
+                          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                            Compression level
+                          </label>
 
-                      {/* REAL-TIME EXTRACTION SUMMARY BAR */}
-                      <div className="mt-3 p-3.5 rounded-xl bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center font-bold text-xs shrink-0">
-                            {selectedPageNumbers.length}
-                          </div>
-                          <div>
-                            <span className="font-bold text-slate-900 dark:text-white block">
-                              {selectedPageNumbers.length > 0
-                                ? `Extracting ${selectedPageNumbers.length} of ${docPages.length || '?'} pages`
-                                : 'No pages selected yet'}
-                            </span>
-                            <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
-                              {selectedPageNumbers.length > 0
-                                ? `Pages: [${formatPageNumbersToRange(selectedPageNumbers)}]`
-                                : 'Select at least 1 page to create your split document.'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {selectedPageNumbers.length > 0 && (
-                          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold text-[11px] border border-emerald-500/20 self-end sm:self-auto">
-                            Ready to Split
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* REMOVE PAGES VISUAL WORKSPACE */}
-                  {activeTool === 'remove-pages' && (
-                    <div className="space-y-4 p-5 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-700/80">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Select Pages to Delete</span>
-                            </span>
-                            {docPages.length > 0 && (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
-                                {docPages.length} Pages Total
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                            Click any page below to mark it for removal (marked pages will be deleted).
-                          </p>
-                        </div>
-                      </div>
-
-                      {docPages.length > 0 ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 pt-2 max-h-96 overflow-y-auto pr-1">
-                          {docPages.map((page) => {
-                            const isDeleted = pagesToDelete.includes(page.pageNumber);
-                            return (
-                              <div
-                                key={page.pageNumber}
-                                onClick={() => togglePageToDelete(page.pageNumber)}
-                                className={`group relative cursor-pointer rounded-2xl border-2 p-3 transition-all flex flex-col justify-between ${
-                                  isDeleted
-                                    ? 'border-rose-500 bg-rose-500/10 shadow-sm ring-2 ring-rose-500/20'
-                                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-800/80 hover:border-slate-300'
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-2">
-                                  <span
-                                    className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md ${
-                                      isDeleted
-                                        ? 'bg-rose-600 text-white'
-                                        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
-                                    }`}
-                                  >
-                                    Page {page.pageNumber}
-                                  </span>
-                                  {isDeleted ? (
-                                    <span className="text-[10px] font-bold text-rose-600">Delete</span>
-                                  ) : (
-                                    <span className="text-[10px] text-slate-400 font-semibold">Keep</span>
-                                  )}
-                                </div>
-
-                                <div className="aspect-[3/4] w-full rounded-lg bg-white dark:bg-surface-900 border border-slate-200/90 dark:border-slate-700 p-2.5 flex flex-col justify-between relative overflow-hidden">
-                                  {isDeleted && (
-                                    <div className="absolute inset-0 bg-rose-600/15 flex items-center justify-center">
-                                      <Trash2 className="w-8 h-8 text-rose-600 opacity-80" />
-                                    </div>
-                                  )}
-                                  <div className="space-y-1.5 opacity-60">
-                                    <div className="h-1.5 w-3/4 rounded-full bg-slate-400" />
-                                    <div className="h-1 w-full rounded-full bg-slate-300 dark:bg-slate-700" />
-                                    <div className="h-1 w-5/6 rounded-full bg-slate-300 dark:bg-slate-700" />
+                          <div className="space-y-2.5 text-xs">
+                            <label
+                              onClick={() => setCompressionLevel('extreme')}
+                              className={`p-3.5 rounded-2xl border cursor-pointer block transition-all ${
+                                compressionLevel === 'extreme'
+                                  ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/20 ring-2 ring-rose-400/20'
+                                  : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <input
+                                  type="radio"
+                                  name="comp"
+                                  checked={compressionLevel === 'extreme'}
+                                  onChange={() => setCompressionLevel('extreme')}
+                                  className="accent-rose-600"
+                                />
+                                <div>
+                                  <div className="font-bold text-slate-900 dark:text-white">
+                                    Extreme compression
                                   </div>
-                                  <div className="text-center font-bold text-xs text-slate-300 dark:text-slate-600 font-mono">
-                                    {page.pageNumber}
+                                  <div className="text-[11px] text-slate-500">
+                                    Less quality, high compression
                                   </div>
                                 </div>
                               </div>
-                            );
-                          })}
+                            </label>
+
+                            <label
+                              onClick={() => setCompressionLevel('recommended')}
+                              className={`p-3.5 rounded-2xl border cursor-pointer block transition-all ${
+                                compressionLevel === 'recommended'
+                                  ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/20 ring-2 ring-rose-400/20'
+                                  : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <input
+                                  type="radio"
+                                  name="comp"
+                                  checked={compressionLevel === 'recommended'}
+                                  onChange={() => setCompressionLevel('recommended')}
+                                  className="accent-rose-600"
+                                />
+                                <div>
+                                  <div className="font-bold text-slate-900 dark:text-white">
+                                    Recommended compression
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    Good quality, good compression
+                                  </div>
+                                </div>
+                              </div>
+                            </label>
+
+                            <label
+                              onClick={() => setCompressionLevel('less')}
+                              className={`p-3.5 rounded-2xl border cursor-pointer block transition-all ${
+                                compressionLevel === 'less'
+                                  ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/20 ring-2 ring-rose-400/20'
+                                  : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <input
+                                  type="radio"
+                                  name="comp"
+                                  checked={compressionLevel === 'less'}
+                                  onChange={() => setCompressionLevel('less')}
+                                  className="accent-rose-600"
+                                />
+                                <div>
+                                  <div className="font-bold text-slate-900 dark:text-white">
+                                    Less compression
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    High quality, less compression
+                                  </div>
+                                </div>
+                              </div>
+                            </label>
+                          </div>
                         </div>
-                      ) : null}
+                      )}
 
-                      <div className="p-3.5 rounded-xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 text-xs flex items-center justify-between">
-                        <span>
-                          Deleting <strong>{pagesToDelete.length}</strong> of {docPages.length || '?'} pages. Retaining{' '}
-                          <strong>{Math.max(0, docPages.length - pagesToDelete.length)}</strong> pages.
-                        </span>
-                      </div>
-                    </div>
-                  )}
+                      {/* ROTATE PDF SIDEBAR */}
+                      {activeTool === 'rotate' && (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-slate-700 dark:text-slate-300">
+                              Rotation: +{rotationDegrees}°
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setRotationDegrees(0)}
+                              className="text-rose-500 hover:underline font-semibold"
+                            >
+                              Reset all
+                            </button>
+                          </div>
 
-                  {/* Rotation */}
-                  {activeTool === 'rotate' && (
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Rotation Degrees
-                      </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[90, 180, 270].map((deg) => (
-                          <button
-                            key={deg}
-                            onClick={() => setRotationDegrees(deg)}
-                            className={`py-2 rounded-xl text-xs font-semibold transition-colors ${
-                              rotationDegrees === deg
-                                ? 'bg-brand-600 text-white'
-                                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                            }`}
-                          >
-                            +{deg}°
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Watermark */}
-                  {activeTool === 'watermark' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                          Stamp Text
-                        </label>
-                        <input
-                          type="text"
-                          value={watermarkText}
-                          onChange={(e) => setWatermarkText(e.target.value)}
-                          className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                          Stamp Opacity ({watermarkOpacity}%)
-                        </label>
-                        <input
-                          type="range"
-                          min="10"
-                          max="100"
-                          value={watermarkOpacity}
-                          onChange={(e) => setWatermarkOpacity(Number(e.target.value))}
-                          className="w-full accent-brand-500"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Password Encryption */}
-                  {(activeTool === 'protect' || activeTool === 'unlock') && (
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                        <Lock className="w-3.5 h-3.5 text-brand-500" />
-                        <span>{activeTool === 'protect' ? 'Set Encryption Password' : 'Document Password'}</span>
-                      </label>
-                      <input
-                        type="password"
-                        value={passwordInput}
-                        onChange={(e) => setPasswordInput(e.target.value)}
-                        placeholder="Enter password..."
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono"
-                      />
-                    </div>
-                  )}
-
-                  {/* Sign Pad */}
-                  {activeTool === 'sign' && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setSignatureMode('draw')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
-                              signatureMode === 'draw'
-                                ? 'bg-brand-600 text-white'
-                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                            }`}
-                          >
-                            Draw Pad
-                          </button>
-                          <button
-                            onClick={() => setSignatureMode('type')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
-                              signatureMode === 'type'
-                                ? 'bg-brand-600 text-white'
-                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                            }`}
-                          >
-                            Type Name
-                          </button>
+                          <div className="grid grid-cols-2 gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => setRotationDegrees((prev) => (prev + 90) % 360)}
+                              className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition-colors"
+                            >
+                              <RotateCw className="w-4 h-4 text-rose-500" />
+                              <span>RIGHT (+90°)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRotationDegrees((prev) => (prev - 90 + 360) % 360)}
+                              className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition-colors"
+                            >
+                              <RotateCcw className="w-4 h-4 text-rose-500" />
+                              <span>LEFT (-90°)</span>
+                            </button>
+                          </div>
                         </div>
-                        {signatureMode === 'draw' && (
-                          <button onClick={clearSignature} className="text-xs text-rose-500 hover:underline">
-                            Clear Pad
-                          </button>
+                      )}
+
+                      {/* PAGE NUMBERS SIDEBAR */}
+                      {activeTool === 'page-numbers' && (
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Page mode:
+                            </label>
+                            <div className="flex items-center gap-4 text-xs">
+                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="pgmode"
+                                  checked={pageNumberMode === 'single'}
+                                  onChange={() => setPageNumberMode('single')}
+                                  className="accent-rose-600"
+                                />
+                                <span>Single page</span>
+                              </label>
+                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="pgmode"
+                                  checked={pageNumberMode === 'facing'}
+                                  onChange={() => setPageNumberMode('facing')}
+                                  className="accent-rose-600"
+                                />
+                                <span>Facing pages</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 items-center">
+                            <div>
+                              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
+                                Position:
+                              </label>
+                              <PositionGridPicker
+                                value={pageNumberPosGrid}
+                                onChange={setPageNumberPosGrid}
+                              />
+                            </div>
+                            <div className="space-y-3">
+                              <div>
+                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                  Margin:
+                                </label>
+                                <select
+                                  value={pageNumberMargin}
+                                  onChange={(e) => setPageNumberMargin(e.target.value as any)}
+                                  className="w-full px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                                >
+                                  <option value="recommended">Recommended</option>
+                                  <option value="small">Small</option>
+                                  <option value="large">Large</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                  First number:
+                                </label>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={pageNumberFirstNum}
+                                  onChange={(e) => setPageNumberFirstNum(Number(e.target.value))}
+                                  className="w-full px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <label className="text-[10px] text-slate-400 block mb-0.5">
+                                from page
+                              </label>
+                              <input
+                                type="number"
+                                min={1}
+                                max={docPages.length || 1}
+                                value={pageNumberFromPage}
+                                onChange={(e) => setPageNumberFromPage(Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-400 block mb-0.5">to</label>
+                              <input
+                                type="number"
+                                min={pageNumberFromPage}
+                                max={docPages.length || 1}
+                                value={pageNumberToPage}
+                                onChange={(e) => setPageNumberToPage(Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* WATERMARK SIDEBAR */}
+                      {activeTool === 'watermark' && (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-center">
+                            <button
+                              type="button"
+                              onClick={() => setWatermarkTab('text')}
+                              className={`py-1.5 rounded-lg transition-all ${
+                                watermarkTab === 'text'
+                                  ? 'bg-white dark:bg-surface-900 text-slate-900 dark:text-white shadow-sm'
+                                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              Place text
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setWatermarkTab('image')}
+                              className={`py-1.5 rounded-lg transition-all ${
+                                watermarkTab === 'image'
+                                  ? 'bg-white dark:bg-surface-900 text-slate-900 dark:text-white shadow-sm'
+                                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              Place image
+                            </button>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Text:
+                            </label>
+                            <input
+                              type="text"
+                              value={watermarkText}
+                              onChange={(e) => setWatermarkText(e.target.value)}
+                              placeholder="e.g. iLovePDF, CONFIDENTIAL"
+                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            <div>
+                              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                Position:
+                              </label>
+                              <PositionGridPicker
+                                value={watermarkPos}
+                                onChange={setWatermarkPos}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="flex items-center gap-2 cursor-pointer text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={watermarkMosaic}
+                                  onChange={(e) => setWatermarkMosaic(e.target.checked)}
+                                  className="w-4 h-4 text-rose-600 rounded"
+                                />
+                                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                  Mosaic pattern
+                                </span>
+                              </label>
+                              <div>
+                                <label className="text-[10px] text-slate-400 block mb-0.5">
+                                  Transparency
+                                </label>
+                                <select
+                                  value={watermarkOpacity}
+                                  onChange={(e) => setWatermarkOpacity(Number(e.target.value))}
+                                  className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                                >
+                                  <option value={100}>No transparency</option>
+                                  <option value={75}>25% transparent</option>
+                                  <option value={50}>50% transparent</option>
+                                  <option value={25}>75% transparent</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* IMAGE TO PDF SIDEBAR */}
+                      {activeTool === 'jpg-to-pdf' && (
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
+                              Page orientation:
+                            </label>
+                            <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
+                              <button
+                                type="button"
+                                onClick={() => setJpgOrientation('portrait')}
+                                className={`py-2 px-3 rounded-xl border text-center transition-all ${
+                                  jpgOrientation === 'portrait'
+                                    ? 'border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 font-bold'
+                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                }`}
+                              >
+                                Portrait
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setJpgOrientation('landscape')}
+                                className={`py-2 px-3 rounded-xl border text-center transition-all ${
+                                  jpgOrientation === 'landscape'
+                                    ? 'border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 font-bold'
+                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                }`}
+                              >
+                                Landscape
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Page size:
+                            </label>
+                            <select
+                              value={jpgPageSize}
+                              onChange={(e) => setJpgPageSize(e.target.value as any)}
+                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                            >
+                              <option value="a4">A4 (297x210 mm)</option>
+                              <option value="letter">US Letter</option>
+                              <option value="fit">Fit (Same page size as image)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Margin:
+                            </label>
+                            <div className="grid grid-cols-3 gap-1.5 text-xs font-semibold">
+                              {(['none', 'small', 'big'] as const).map((m) => (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => setJpgMargin(m)}
+                                  className={`py-1.5 rounded-lg border text-center capitalize transition-all ${
+                                    jpgMargin === m
+                                      ? 'border-rose-500 text-rose-600 bg-rose-50/50 dark:bg-rose-950/20 font-bold'
+                                      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                  }`}
+                                >
+                                  {m === 'none' ? 'No margin' : m}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* PROTECT PDF SIDEBAR */}
+                      {activeTool === 'protect' && (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Password:
+                            </label>
+                            <input
+                              type="password"
+                              value={passwordInput}
+                              onChange={(e) => setPasswordInput(e.target.value)}
+                              placeholder="Enter document password"
+                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Confirm password:
+                            </label>
+                            <input
+                              type="password"
+                              value={confirmPassword}
+                              onChange={(e) => setConfirmPassword(e.target.value)}
+                              placeholder="Confirm password"
+                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SIGN PDF SIDEBAR */}
+                      {activeTool === 'sign' && (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setSignatureMode('draw')}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                                signatureMode === 'draw'
+                                  ? 'bg-rose-600 text-white'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                              }`}
+                            >
+                              Draw Pad
+                            </button>
+                            <button
+                              onClick={() => setSignatureMode('type')}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                                signatureMode === 'type'
+                                  ? 'bg-rose-600 text-white'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                              }`}
+                            >
+                              Type Name
+                            </button>
+                            {signatureMode === 'draw' && (
+                              <button
+                                onClick={clearSignature}
+                                className="ml-auto text-xs text-rose-500 hover:underline"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+
+                          {signatureMode === 'draw' ? (
+                            <div className="p-1 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl bg-white w-full">
+                              <canvas
+                                ref={signatureCanvasRef}
+                                width={400}
+                                height={120}
+                                onMouseDown={startDrawing}
+                                onMouseMove={draw}
+                                onMouseUp={stopDrawing}
+                                onMouseLeave={stopDrawing}
+                                onTouchStart={startDrawing}
+                                onTouchMove={draw}
+                                onTouchEnd={stopDrawing}
+                                className="w-full h-28 bg-slate-50 rounded-lg cursor-crosshair touch-none"
+                              />
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              value={signatureText}
+                              onChange={(e) => setSignatureText(e.target.value)}
+                              placeholder="Type signature..."
+                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-base font-serif italic text-blue-900 dark:text-blue-200"
+                            />
+                          )}
+                        </div>
+                      )}
+
+                      {/* OCR PDF SIDEBAR */}
+                      {activeTool === 'ocr' && (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Document language:
+                            </label>
+                            <select
+                              value={ocrLanguage}
+                              onChange={(e) => setOcrLanguage(e.target.value as any)}
+                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                            >
+                              <option value="English">English (Auto Detect)</option>
+                              <option value="Spanish">Spanish (Español)</option>
+                              <option value="French">French (Français)</option>
+                              <option value="German">German (Deutsch)</option>
+                              <option value="Hindi">Hindi (हिन्दी)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Output structure:
+                            </label>
+                            <select
+                              value={ocrMode}
+                              onChange={(e) => setOcrMode(e.target.value as any)}
+                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                            >
+                              <option value="searchable_pdf">Searchable PDF</option>
+                              <option value="text_only">Extract text transcript (.txt)</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Bottom Signature Red Action Button (Matching ILovePDF [Action ->]) */}
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        disabled={
+                          isProcessing ||
+                          (activeTool === 'remove-pages' &&
+                            docPages.length > 0 &&
+                            pagesToDelete.length === docPages.length)
+                        }
+                        onClick={executeActiveTool}
+                        className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white font-extrabold text-base sm:text-lg shadow-xl shadow-rose-600/30 transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+                      >
+                        {isProcessing ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span>Processing in Browser...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>
+                              {activeTool === 'merge'
+                                ? 'Merge PDF'
+                                : activeTool === 'split' || activeTool === 'extract-pages'
+                                ? 'Split PDF'
+                                : activeTool === 'remove-pages'
+                                ? 'Remove pages'
+                                : activeTool === 'compress'
+                                ? 'Compress PDF'
+                                : activeTool === 'rotate'
+                                ? 'Rotate PDF'
+                                : activeTool === 'page-numbers'
+                                ? 'Add page numbers'
+                                : activeTool === 'watermark'
+                                ? 'Add watermark'
+                                : activeTool === 'jpg-to-pdf'
+                                ? 'Convert to PDF'
+                                : activeTool === 'protect'
+                                ? 'Protect PDF'
+                                : activeTool === 'unlock'
+                                ? 'Unlock PDF'
+                                : activeTool === 'sign'
+                                ? 'Sign PDF'
+                                : activeTool === 'ocr'
+                                ? 'Apply OCR'
+                                : activeTool === 'repair'
+                                ? 'Repair PDF'
+                                : activeTool === 'crop'
+                                ? 'Crop PDF'
+                                : activeTool === 'pdf-to-word'
+                                ? 'Convert to WORD'
+                                : activeTool === 'pdf-to-ppt'
+                                ? 'Convert to PPT'
+                                : activeTool === 'pdf-to-excel'
+                                ? 'Convert to EXCEL'
+                                : activeTool === 'pdf-to-markdown'
+                                ? 'Convert to Markdown'
+                                : activeTool === 'word-to-pdf'
+                                ? 'Convert to PDF'
+                                : `Process ${currentToolDef.name}`}
+                            </span>
+                            <ArrowRight className="w-5 h-5 bg-white/20 rounded-full p-0.5" />
+                          </>
                         )}
-                      </div>
-
-                      {signatureMode === 'draw' ? (
-                        <div className="p-2 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl bg-white w-full">
-                          <canvas
-                            ref={signatureCanvasRef}
-                            width={500}
-                            height={140}
-                            onMouseDown={startDrawing}
-                            onMouseMove={draw}
-                            onMouseUp={stopDrawing}
-                            onMouseLeave={stopDrawing}
-                            onTouchStart={startDrawing}
-                            onTouchMove={draw}
-                            onTouchEnd={stopDrawing}
-                            className="w-full h-32 sm:h-36 bg-slate-50 rounded-xl cursor-crosshair touch-none"
-                          />
-                          <span className="text-[10px] text-slate-400 block text-center mt-1">
-                            Draw signature above with finger or mouse
-                          </span>
-                        </div>
-                      ) : (
-                        <input
-                          type="text"
-                          value={signatureText}
-                          onChange={(e) => setSignatureText(e.target.value)}
-                          placeholder="Type signature..."
-                          className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-base sm:text-lg font-serif italic text-blue-900 dark:text-blue-200"
-                        />
-                      )}
+                      </button>
                     </div>
-                  )}
-
-                  {/* Primary Create / Process Button */}
-                  <div className="pt-2 flex justify-end">
-                    <button
-                      disabled={
-                        isProcessing ||
-                        ((activeTool === 'split' || activeTool === 'extract-pages') &&
-                          splitTabMode === 'visual' &&
-                          selectedPageNumbers.length === 0) ||
-                        (activeTool === 'remove-pages' &&
-                          docPages.length > 0 &&
-                          pagesToDelete.length === docPages.length)
-                      }
-                      onClick={executeActiveTool}
-                      className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-rose-500/20 disabled:opacity-50 transition-all active:scale-[0.98]"
-                    >
-                      {isProcessing ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Processing in Browser...</span>
-                        </>
-                      ) : activeTool === 'split' || activeTool === 'extract-pages' ? (
-                        <>
-                          <Scissors className="w-4 h-4" />
-                          <span>
-                            {selectedPageNumbers.length > 0
-                              ? `Split & Extract ${selectedPageNumbers.length} Page(s)`
-                              : 'Select Pages to Split'}
-                          </span>
-                        </>
-                      ) : activeTool === 'remove-pages' ? (
-                        <>
-                          <Trash2 className="w-4 h-4" />
-                          <span>
-                            {pagesToDelete.length > 0
-                              ? `Delete ${pagesToDelete.length} Page(s) & Save`
-                              : 'Select Pages to Delete'}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          <span>Process & Create {currentToolDef.name}</span>
-                        </>
-                      )}
-                    </button>
                   </div>
                 </div>
               )}
