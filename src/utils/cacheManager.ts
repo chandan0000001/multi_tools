@@ -146,7 +146,7 @@ export function clearAllToolCache(): number {
 
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && key.startsWith(CACHE_PREFIX)) {
+    if (key && (key.startsWith(CACHE_PREFIX) || (key.startsWith('multi_tools:') && !key.includes('theme')))) {
       keysToRemove.push(key);
     }
   }
@@ -172,7 +172,7 @@ export function getCacheStats(): { count: number; totalSizeBytes: number } {
 
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && key.startsWith(CACHE_PREFIX)) {
+    if (key && (key.startsWith(CACHE_PREFIX) || (key.startsWith('multi_tools:') && !key.includes('theme')))) {
       const val = localStorage.getItem(key);
       if (val) {
         count++;
@@ -182,4 +182,21 @@ export function getCacheStats(): { count: number; totalSizeBytes: number } {
   }
 
   return { count, totalSizeBytes };
+}
+
+/**
+ * Record a user operation or processed artifact activity into cache
+ */
+export function recordToolActivity(
+  toolId: string,
+  actionName: string,
+  metadata: Record<string, any>
+): boolean {
+  const timestamp = Date.now();
+  const entryKey = `activity:${actionName}:${timestamp}_${Math.random().toString(36).slice(2, 7)}`;
+  return setCachedResult(toolId, entryKey, {
+    action: actionName,
+    timestamp,
+    ...metadata,
+  });
 }

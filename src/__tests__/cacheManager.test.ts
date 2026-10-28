@@ -3,6 +3,8 @@ import {
   setCachedResult,
   getCachedResult,
   clearAllToolCache,
+  recordToolActivity,
+  getCacheStats,
   pruneExpiredCacheEntries,
   hashInput,
 } from '../utils/cacheManager';
@@ -89,5 +91,12 @@ describe('LocalStorage Cache Manager (PRD Section 8)', () => {
     const clearedCount = clearAllToolCache();
     expect(clearedCount).toBe(2);
     expect(getCachedResult('calculator', 'hist')).toBeNull();
+  });
+
+  it('records tool activity and accurately tracks cache stats', () => {
+    recordToolActivity('pdf-tools', 'organize', { filename: 'test.pdf', pages: 5 });
+    const stats = getCacheStats();
+    expect(stats.count).toBeGreaterThan(0);
+    expect(stats.totalSizeBytes).toBeGreaterThan(0);
   });
 });

@@ -6,6 +6,8 @@ import { TOOLS } from '../../data/toolsData';
 import { useToast } from '../../context/ToastContext';
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
 import { inflate } from 'pako';
+import { OrganizePdfWorkspace } from '../../components/pdf/OrganizePdfWorkspace';
+import { recordToolActivity } from '../../utils/cacheManager';
 import {
   FileText,
   Merge,
@@ -832,6 +834,15 @@ export const PdfTools: React.FC = () => {
   // Core Local Execution Engine (pdf-lib)
   // Transitions to the Download screen on completion!
   // ==========================================
+  const finishPdfProcessing = (result: ProcessedResult) => {
+    setProcessedResult(result);
+    recordToolActivity('pdf-tools', activeTool || 'action', {
+      filename: result.filename,
+      size: result.size,
+      inputFiles: uploadedFiles.map((f) => f.name),
+    });
+  };
+
   const executeActiveTool = async () => {
     if (activeTool === 'scan-pdf') {
       if (capturedScans.length === 0) {
@@ -852,7 +863,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `scanned-document-${Date.now()}.pdf`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -892,7 +903,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `merged-${Date.now()}.pdf`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -936,7 +947,7 @@ export const PdfTools: React.FC = () => {
         const pageLabel = targetPageIndices.map((i) => i + 1).join('-');
         const filename = `${firstFile.name.replace('.pdf', '')}-split-pages-${pageLabel}.pdf`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -967,7 +978,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `${firstFile.name.replace('.pdf', '')}-remaining-${keepIndices.length}-pages.pdf`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1018,7 +1029,7 @@ export const PdfTools: React.FC = () => {
         const txtBlob = new Blob([extractedMatches], { type: 'text/plain' });
         const txtUrl = URL.createObjectURL(txtBlob);
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1048,7 +1059,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `rotated-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1081,7 +1092,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `watermarked-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1125,7 +1136,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `numbered-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1143,7 +1154,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `compressed-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1161,7 +1172,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `repaired-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1185,7 +1196,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `protected-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1203,7 +1214,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `unlocked-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1244,7 +1255,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `signed-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1273,7 +1284,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `redacted-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1302,7 +1313,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `images-to-pdf-${Date.now()}.pdf`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1352,7 +1363,7 @@ export const PdfTools: React.FC = () => {
         }
 
         const downloadUrl = URL.createObjectURL(blob);
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1373,7 +1384,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `pdfa-archival-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1503,7 +1514,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `${firstFile.name.replace(/\.[^/.]+$/, '')}.pdf`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1525,7 +1536,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(txtBlob);
         const filename = `${firstFile.name.replace('.pdf', '')}.txt`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob: txtBlob,
           downloadUrl,
           filename,
@@ -1544,7 +1555,7 @@ export const PdfTools: React.FC = () => {
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `processed-${firstFile.name}`;
 
-        setProcessedResult({
+        finishPdfProcessing({
           blob,
           downloadUrl,
           filename,
@@ -1784,6 +1795,11 @@ export const PdfTools: React.FC = () => {
                     </div>
                   )}
                 </div>
+              ) : activeTool === 'organize' ? (
+                <OrganizePdfWorkspace
+                  initialFiles={uploadedFiles.map((f) => f.file)}
+                  onBackToCatalogue={backToGrid}
+                />
               ) : (
                 /* Standard Drag & Drop File Area */
                 <div
@@ -1830,7 +1846,7 @@ export const PdfTools: React.FC = () => {
               )}
 
               {/* Uploaded Files & Specific Controls */}
-              {(uploadedFiles.length > 0 || capturedScans.length > 0) && (
+              {(uploadedFiles.length > 0 || capturedScans.length > 0) && activeTool !== 'organize' && (
                 <div className="p-4 sm:p-8 rounded-2xl sm:rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 sm:space-y-5">
                   {uploadedFiles.length > 0 && (
                     <div className="space-y-2">
