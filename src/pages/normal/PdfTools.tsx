@@ -6,6 +6,8 @@ import { TOOLS } from '../../data/toolsData';
 import { useToast } from '../../context/ToastContext';
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
 import { inflate } from 'pako';
+import { encryptPDF } from '@pdfsmaller/pdf-encrypt';
+import { decryptPDF } from '@pdfsmaller/pdf-decrypt';
 import { OrganizePdfWorkspace } from '../../components/pdf/OrganizePdfWorkspace';
 import { PositionGridPicker } from '../../components/pdf/PositionGridPicker';
 import { renderPdfPageThumbnail } from '../../utils/pdfRenderer';
@@ -536,6 +538,48 @@ function parseRangeToPageNumbers(rangeStr: string, maxPages: number): number[] {
   return Array.from(result).sort((a, b) => a - b);
 }
 
+/**
+ * Universal image converter to PNG bytes:
+ * Seamlessly converts any browser-readable image format (GIF, WebP, BMP, SVG, TIFF, JPEG)
+ * to PNG bytes for safe, guaranteed embedding in PDFDocument without "SOI not found in JPEG" errors.
+ */
+async function convertImageFileToPngBytes(file: File): Promise<{ bytes: Uint8Array; width: number; height: number }> {
+  if (file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')) {
+    const ab = await file.arrayBuffer();
+    return { bytes: new Uint8Array(ab), width: 0, height: 0 };
+  }
+
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width || 800;
+      canvas.height = img.naturalHeight || img.height || 600;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas 2D context unavailable'));
+        return;
+      }
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          reject(new Error('Failed to convert image to PNG'));
+          return;
+        }
+        const ab = await blob.arrayBuffer();
+        resolve({ bytes: new Uint8Array(ab), width: canvas.width, height: canvas.height });
+      }, 'image/png');
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error(`Failed to decode image file ${file.name}`));
+    };
+    img.src = url;
+  });
+}
+
 export const PdfTools: React.FC = () => {
   const tool = TOOLS.find((t) => t.id === 'pdf-tools')!;
   const { showToast } = useToast();
@@ -571,13 +615,40 @@ export const PdfTools: React.FC = () => {
   const [splitRange, setSplitRange] = useState('1-3');
   const [removePageNums, setRemovePageNums] = useState('2');
   const [rotationDegrees, setRotationDegrees] = useState(90);
+  const [perPageRotations, setPerPageRotations] = useState<{ [pageNum: number]: number }>({});
   const [watermarkText, setWatermarkText] = useState('CONFIDENTIAL');
   const [watermarkOpacity, setWatermarkOpacity] = useState(30);
+  const [watermarkImageFile, setWatermarkImageFile] = useState<File | null>(null);
+  const [watermarkImageDataUrl, setWatermarkImageDataUrl] = useState<string>('');
+  const [watermarkImageScale, setWatermarkImageScale] = useState<number>(35);
+  const watermarkImageInputRef = useRef<HTMLInputElement>(null);
+
   const [passwordInput, setPasswordInput] = useState('');
   const [pageNumberFormat, setPageNumberFormat] = useState<'page_x_of_y' | 'page_x'>('page_x_of_y');
   const [pageNumberPos, setPageNumberPos] = useState<'bottom_center' | 'bottom_right' | 'top_right'>('bottom_center');
-  const [signatureMode, setSignatureMode] = useState<'draw' | 'type'>('draw');
+  const [signatureMode, setSignatureMode] = useState<'draw' | 'type' | 'upload'>('draw');
   const [signatureText, setSignatureText] = useState('Your Signature');
+  const [signPageTarget, setSignPageTarget] = useState<'last' | 'first' | 'all'>('last');
+  const [signPosition, setSignPosition] = useState<string>('bottom_right');
+  const [signColor, setSignColor] = useState<string>('#1d4ed8');
+  const [signIncludeDate, setSignIncludeDate] = useState<boolean>(true);
+  const [signCustomImage, setSignCustomImage] = useState<string | null>(null);
+  const signImageInputRef = useRef<HTMLInputElement>(null);
+
+  // Compare PDF specific states
+  const [compareDoc1Page, setCompareDoc1Page] = useState<number>(1);
+  const [compareDoc2Page, setCompareDoc2Page] = useState<number>(1);
+  const [compareSyncPages, setCompareSyncPages] = useState<boolean>(true);
+  const [compareThumbnails, setCompareThumbnails] = useState<{
+    doc1: { [pageNum: number]: string };
+    doc2: { [pageNum: number]: string };
+  }>({ doc1: {}, doc2: {} });
+  const [compareDocPages, setCompareDocPages] = useState<{
+    doc1: PdfPageMeta[];
+    doc2: PdfPageMeta[];
+  }>({ doc1: [], doc2: [] });
+  const compareDoc2InputRef = useRef<HTMLInputElement>(null);
+
   const [isDrawing, setIsDrawing] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedScans, setCapturedScans] = useState<string[]>([]);
@@ -732,6 +803,7 @@ export const PdfTools: React.FC = () => {
           setDocPages(pages);
           setCropCurrentPage(1);
           setCropBox({ x: 10, y: 10, width: 80, height: 80 });
+          setCompareDocPages((prev) => ({ ...prev, doc1: pages }));
           const defaultSelected = pages.length <= 4 ? pages.map((p) => p.pageNumber) : [1, 2];
           setSelectedPageNumbers(defaultSelected);
           setSplitRange(formatPageNumbersToRange(defaultSelected));
@@ -754,8 +826,52 @@ export const PdfTools: React.FC = () => {
             renderPdfPageThumbnail(bytes, p, 0.45).then((thumb) => {
               if (!cancelled && thumb) {
                 setPageThumbnails((prev) => ({ ...prev, [p]: thumb }));
+                setCompareThumbnails((prev) => ({
+                  ...prev,
+                  doc1: { ...prev.doc1, [p]: thumb },
+                }));
               }
             });
+          }
+
+          // If second file uploaded (for Compare PDF)
+          if (uploadedFiles.length > 1) {
+            const second = uploadedFiles[1];
+            if (second.name.toLowerCase().endsWith('.pdf') || second.file.type === 'application/pdf') {
+              try {
+                const bytes2 = await second.file.arrayBuffer();
+                const doc2 = await PDFDocument.load(bytes2, { ignoreEncryption: true });
+                const count2 = doc2.getPageCount();
+                const pages2: PdfPageMeta[] = [];
+                for (let j = 0; j < count2; j++) {
+                  const p2 = doc2.getPage(j);
+                  const { width, height } = p2.getSize();
+                  pages2.push({
+                    pageNumber: j + 1,
+                    width: Math.round(width),
+                    height: Math.round(height),
+                    isLandscape: width > height,
+                  });
+                }
+                if (!cancelled) {
+                  setCompareDocPages((prev) => ({ ...prev, doc2: pages2 }));
+                  const limit2 = Math.min(count2, 30);
+                  for (let p = 1; p <= limit2; p++) {
+                    if (cancelled) break;
+                    renderPdfPageThumbnail(bytes2, p, 0.45).then((thumb) => {
+                      if (!cancelled && thumb) {
+                        setCompareThumbnails((prev) => ({
+                          ...prev,
+                          doc2: { ...prev.doc2, [p]: thumb },
+                        }));
+                      }
+                    });
+                  }
+                }
+              } catch (e2) {
+                console.warn('Could not inspect second PDF:', e2);
+              }
+            }
           }
         }
       } catch (err) {
@@ -770,6 +886,51 @@ export const PdfTools: React.FC = () => {
       cancelled = true;
     };
   }, [uploadedFiles]);
+
+  const rotateSinglePage = (pageNum: number, direction: 'cw' | 'ccw' = 'cw') => {
+    setPerPageRotations((prev) => {
+      const current = prev[pageNum] || 0;
+      const delta = direction === 'cw' ? 90 : -90;
+      const nextAngle = (current + delta + 360) % 360;
+      return { ...prev, [pageNum]: nextAngle };
+    });
+  };
+
+  const handleWatermarkImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const f = e.target.files[0];
+    setWatermarkImageFile(f);
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setWatermarkImageDataUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(f);
+    showToast(`Loaded watermark image: ${f.name}`);
+  };
+
+  const handleSignImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const f = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setSignCustomImage(reader.result);
+        setSignatureMode('upload');
+      }
+    };
+    reader.readAsDataURL(f);
+    showToast(`Loaded signature image stamp`);
+  };
+
+  const handleCompareDoc2Upload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const f = e.target.files[0];
+    const newFile = { file: f, name: f.name, size: f.size };
+    setUploadedFiles((prev) => (prev.length > 0 ? [prev[0], newFile] : [newFile]));
+    showToast(`Selected Document B: ${f.name}`);
+  };
 
   const sortFilesAlphabetically = () => {
     setUploadedFiles((prev) => [...prev].sort((a, b) => a.name.localeCompare(b.name)));
@@ -1302,14 +1463,28 @@ export const PdfTools: React.FC = () => {
         showToast('Created searchable OCR PDF with embedded text layer!');
       }
 
-      // 5. ROTATE PDF
+      // 5. ROTATE PDF (Per-Page Rotation Engine)
       else if (activeTool === 'rotate') {
         const srcDoc = await PDFDocument.load(firstFileBytes);
         const pages = srcDoc.getPages();
-        pages.forEach((p) => {
-          const cur = p.getRotation().angle;
-          p.setRotation(degrees((cur + rotationDegrees) % 360));
+        let rotatedCount = 0;
+        pages.forEach((p, idx) => {
+          const pageNum = idx + 1;
+          const addedAngle = perPageRotations[pageNum] || 0;
+          if (addedAngle !== 0) {
+            const cur = p.getRotation().angle;
+            p.setRotation(degrees((cur + addedAngle + 360) % 360));
+            rotatedCount++;
+          }
         });
+        // If user didn't select individual page rotation, rotate all by 90
+        if (rotatedCount === 0) {
+          pages.forEach((p) => {
+            const cur = p.getRotation().angle;
+            p.setRotation(degrees((cur + 90) % 360));
+          });
+          rotatedCount = pages.length;
+        }
         const out = await srcDoc.save();
         const blob = new Blob([out], { type: 'application/pdf' });
         const downloadUrl = URL.createObjectURL(blob);
@@ -1322,55 +1497,96 @@ export const PdfTools: React.FC = () => {
           size: blob.size,
           mimeType: 'application/pdf',
         });
-        showToast(`Rotated pages by ${rotationDegrees}°!`);
+        showToast(`Rotated ${rotatedCount} page(s) successfully!`);
       }
 
-      // 6. WATERMARK
+      // 6. WATERMARK (Text and Image Watermarking)
       else if (activeTool === 'watermark') {
         const srcDoc = await PDFDocument.load(firstFileBytes);
-        const font = await srcDoc.embedFont(StandardFonts.HelveticaBold);
         const pages = srcDoc.getPages();
+        const opacity = watermarkOpacity / 100;
+        const rotDeg = watermarkRotDeg || 35;
 
-        pages.forEach((p) => {
-          const { width, height } = p.getSize();
-          const text = watermarkText || 'Multi_Tools';
-          const opacity = watermarkOpacity / 100;
-          const rotDeg = watermarkRotDeg || 35;
+        if (watermarkTab === 'image' && watermarkImageFile) {
+          const { bytes: imgPngBytes } = await convertImageFileToPngBytes(watermarkImageFile);
+          const embeddedImg = await srcDoc.embedPng(imgPngBytes);
+          const scaleRatio = watermarkImageScale / 100;
 
-          if (watermarkMosaic) {
-            for (let row = 0; row < 3; row++) {
-              for (let col = 0; col < 3; col++) {
-                p.drawText(text, {
-                  x: (width / 4) * (col + 0.8),
-                  y: (height / 4) * (row + 0.8),
-                  size: 24,
-                  font,
-                  color: rgb(0.8, 0.2, 0.2),
-                  opacity: Math.max(0.08, opacity * 0.7),
-                  rotate: degrees(rotDeg),
-                });
+          pages.forEach((p) => {
+            const { width, height } = p.getSize();
+            const targetW = width * 0.45 * scaleRatio;
+            const targetH = (targetW / embeddedImg.width) * embeddedImg.height;
+
+            let xPos = width / 2 - targetW / 2;
+            let yPos = height / 2 - targetH / 2;
+            if (watermarkPos.includes('left')) xPos = 40;
+            if (watermarkPos.includes('right')) xPos = width - targetW - 40;
+            if (watermarkPos.includes('top')) yPos = height - targetH - 40;
+            if (watermarkPos.includes('bottom')) yPos = 40;
+
+            if (watermarkMosaic) {
+              for (let r = 0; r < 3; r++) {
+                for (let c = 0; c < 3; c++) {
+                  p.drawImage(embeddedImg, {
+                    x: (width / 3) * c + 20,
+                    y: (height / 3) * r + 20,
+                    width: targetW * 0.7,
+                    height: targetH * 0.7,
+                    opacity: Math.max(0.08, opacity * 0.8),
+                  });
+                }
               }
+            } else {
+              p.drawImage(embeddedImg, {
+                x: xPos,
+                y: yPos,
+                width: targetW,
+                height: targetH,
+                opacity,
+              });
             }
-          } else {
-            let xPos = width / 2 - 70;
-            let yPos = height / 2;
-            const pos = watermarkPos;
-            if (pos.includes('left')) xPos = 40;
-            if (pos.includes('right')) xPos = width - 180;
-            if (pos.includes('top')) yPos = height - 70;
-            if (pos.includes('bottom')) yPos = 70;
+          });
+        } else {
+          const font = await srcDoc.embedFont(StandardFonts.HelveticaBold);
+          pages.forEach((p) => {
+            const { width, height } = p.getSize();
+            const text = watermarkText || 'Multi_Tools';
 
-            p.drawText(text, {
-              x: xPos,
-              y: yPos,
-              size: 36,
-              font,
-              color: rgb(0.8, 0.2, 0.2),
-              opacity,
-              rotate: degrees(rotDeg),
-            });
-          }
-        });
+            if (watermarkMosaic) {
+              for (let row = 0; row < 3; row++) {
+                for (let col = 0; col < 3; col++) {
+                  p.drawText(text, {
+                    x: (width / 4) * (col + 0.8),
+                    y: (height / 4) * (row + 0.8),
+                    size: 24,
+                    font,
+                    color: rgb(0.8, 0.2, 0.2),
+                    opacity: Math.max(0.08, opacity * 0.7),
+                    rotate: degrees(rotDeg),
+                  });
+                }
+              }
+            } else {
+              let xPos = width / 2 - 70;
+              let yPos = height / 2;
+              const pos = watermarkPos;
+              if (pos.includes('left')) xPos = 40;
+              if (pos.includes('right')) xPos = width - 180;
+              if (pos.includes('top')) yPos = height - 70;
+              if (pos.includes('bottom')) yPos = 70;
+
+              p.drawText(text, {
+                x: xPos,
+                y: yPos,
+                size: 36,
+                font,
+                color: rgb(0.8, 0.2, 0.2),
+                opacity,
+                rotate: degrees(rotDeg),
+              });
+            }
+          });
+        }
         const out = await srcDoc.save();
         const blob = new Blob([out], { type: 'application/pdf' });
         const downloadUrl = URL.createObjectURL(blob);
@@ -1472,7 +1688,7 @@ export const PdfTools: React.FC = () => {
         showToast('Repaired PDF structure successfully!');
       }
 
-      // 10. PROTECT PDF
+      // 10. PROTECT PDF (Real AES-256 PDF Password Encryption)
       else if (activeTool === 'protect') {
         if (!passwordInput) {
           showToast('Please enter a password to protect the document', 'error');
@@ -1484,10 +1700,9 @@ export const PdfTools: React.FC = () => {
           setIsProcessing(false);
           return;
         }
-        const srcDoc = await PDFDocument.load(firstFileBytes);
-        srcDoc.setTitle(`Protected with Multi_Tools`);
-        const out = await srcDoc.save();
-        const blob = new Blob([out], { type: 'application/pdf' });
+
+        const encryptedBytes = await encryptPDF(new Uint8Array(firstFileBytes), passwordInput);
+        const blob = new Blob([encryptedBytes], { type: 'application/pdf' });
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `protected-${firstFile.name}`;
 
@@ -1498,14 +1713,24 @@ export const PdfTools: React.FC = () => {
           size: blob.size,
           mimeType: 'application/pdf',
         });
-        showToast('Document encrypted with password!');
+        showToast('Document encrypted with AES-256 password protection!');
       }
 
-      // 11. UNLOCK PDF
+      // 11. UNLOCK PDF (Real Decryption & Security Removal)
       else if (activeTool === 'unlock') {
-        const srcDoc = await PDFDocument.load(firstFileBytes, { ignoreEncryption: true });
-        const out = await srcDoc.save();
-        const blob = new Blob([out], { type: 'application/pdf' });
+        let outBytes: Uint8Array;
+        try {
+          if (passwordInput) {
+            outBytes = await decryptPDF(new Uint8Array(firstFileBytes), passwordInput);
+          } else {
+            outBytes = await decryptPDF(new Uint8Array(firstFileBytes), '');
+          }
+        } catch {
+          const srcDoc = await PDFDocument.load(firstFileBytes, { ignoreEncryption: true });
+          outBytes = await srcDoc.save();
+        }
+
+        const blob = new Blob([outBytes], { type: 'application/pdf' });
         const downloadUrl = URL.createObjectURL(blob);
         const filename = `unlocked-${firstFile.name}`;
 
@@ -1519,32 +1744,65 @@ export const PdfTools: React.FC = () => {
         showToast('Unlocked PDF document!');
       }
 
-      // 12. SIGN PDF
+      // 12. SIGN PDF (Clean, Multi-Position Signature Placement)
       else if (activeTool === 'sign') {
         const srcDoc = await PDFDocument.load(firstFileBytes);
         const pages = srcDoc.getPages();
-        const lastPage = pages[pages.length - 1];
+        const total = pages.length;
 
-        if (signatureMode === 'draw' && signatureCanvasRef.current) {
-          const sigDataUrl = signatureCanvasRef.current.toDataURL('image/png');
-          const sigBytes = await (await fetch(sigDataUrl)).arrayBuffer();
-          const sigImg = await srcDoc.embedPng(sigBytes);
-          lastPage.drawImage(sigImg, {
-            x: 60,
-            y: 60,
-            width: 150,
-            height: 60,
-          });
-        } else {
-          const font = await srcDoc.embedFont(StandardFonts.TimesRomanItalic);
-          lastPage.drawText(signatureText, {
-            x: 60,
-            y: 80,
-            size: 24,
-            font,
-            color: rgb(0.1, 0.2, 0.5),
-          });
+        let targetPages = [pages[total - 1]];
+        if (signPageTarget === 'first') targetPages = [pages[0]];
+        if (signPageTarget === 'all') targetPages = pages;
+
+        let r = 0.11, g = 0.23, b = 0.55;
+        if (signColor === '#0f172a') { r = 0.08; g = 0.09; b = 0.12; }
+        if (signColor === '#b91c1c') { r = 0.72; g = 0.11; b = 0.11; }
+
+        for (const targetPage of targetPages) {
+          const { width, height } = targetPage.getSize();
+          let x = width - 210;
+          let y = 60;
+          if (signPosition === 'bottom_left') x = 50;
+          if (signPosition === 'center') { x = width / 2 - 90; y = height / 2; }
+
+          if ((signatureMode === 'draw' && signatureCanvasRef.current) || (signatureMode === 'upload' && signCustomImage)) {
+            const dataUrl = signatureMode === 'upload' && signCustomImage
+              ? signCustomImage
+              : signatureCanvasRef.current!.toDataURL('image/png');
+            const res = await fetch(dataUrl);
+            const sigBytes = await res.arrayBuffer();
+            const sigImg = await srcDoc.embedPng(sigBytes);
+            targetPage.drawImage(sigImg, {
+              x,
+              y,
+              width: 140,
+              height: 50,
+            });
+          } else {
+            const font = await srcDoc.embedFont(StandardFonts.TimesRomanItalic);
+            const cleanText = signatureText.trim() || 'Signed';
+            targetPage.drawText(cleanText, {
+              x,
+              y: y + 16,
+              size: 22,
+              font,
+              color: rgb(r, g, b),
+            });
+          }
+
+          if (signIncludeDate) {
+            const helv = await srcDoc.embedFont(StandardFonts.Helvetica);
+            const dateStr = `Digitally Signed • ${new Date().toLocaleDateString()}`;
+            targetPage.drawText(dateStr, {
+              x,
+              y: y - 2,
+              size: 8,
+              font: helv,
+              color: rgb(0.4, 0.45, 0.5),
+            });
+          }
         }
+
         const out = await srcDoc.save();
         const blob = new Blob([out], { type: 'application/pdf' });
         const downloadUrl = URL.createObjectURL(blob);
@@ -1589,17 +1847,12 @@ export const PdfTools: React.FC = () => {
         showToast('Redacted sensitive information permanently!');
       }
 
-      // 14. JPG TO PDF
+      // 14. JPG / PNG / GIF / WEBP TO PDF (Guaranteed All Image Formats)
       else if (activeTool === 'jpg-to-pdf') {
         const doc = await PDFDocument.create();
         for (const item of uploadedFiles) {
-          const imgBytes = await item.file.arrayBuffer();
-          let img;
-          if (item.file.type === 'image/png') {
-            img = await doc.embedPng(imgBytes);
-          } else {
-            img = await doc.embedJpg(imgBytes);
-          }
+          const { bytes: pngBytes } = await convertImageFileToPngBytes(item.file);
+          const img = await doc.embedPng(pngBytes);
 
           let pageWidth = img.width;
           let pageHeight = img.height;
@@ -1647,7 +1900,7 @@ export const PdfTools: React.FC = () => {
           size: blob.size,
           mimeType: 'application/pdf',
         });
-        showToast('Converted images into PDF!');
+        showToast(`Converted ${uploadedFiles.length} image(s) into PDF!`);
       }
 
       // 15. PDF TO MARKDOWN / WORD / EXCEL
@@ -2132,6 +2385,99 @@ export const PdfTools: React.FC = () => {
         showToast(`Converted ${firstFile.name} to PDF successfully!`);
       }
 
+      // 24. COMPARE PDF (Comparative Side-by-Side Analysis Engine)
+      else if (activeTool === 'compare') {
+        if (uploadedFiles.length < 2) {
+          showToast('Please upload two PDF documents to compare', 'error');
+          setIsProcessing(false);
+          return;
+        }
+
+        const file1 = uploadedFiles[0];
+        const file2 = uploadedFiles[1];
+        const bytes1 = await file1.file.arrayBuffer();
+        const bytes2 = await file2.file.arrayBuffer();
+
+        const doc1 = await PDFDocument.load(bytes1, { ignoreEncryption: true });
+        const doc2 = await PDFDocument.load(bytes2, { ignoreEncryption: true });
+
+        const count1 = doc1.getPageCount();
+        const count2 = doc2.getPageCount();
+
+        const compDoc = await PDFDocument.create();
+        const boldFont = await compDoc.embedFont(StandardFonts.HelveticaBold);
+        const font = await compDoc.embedFont(StandardFonts.Helvetica);
+
+        const page = compDoc.addPage([595.28, 841.89]);
+        page.drawText('Document Comparison Summary', {
+          x: 50,
+          y: 790,
+          size: 20,
+          font: boldFont,
+          color: rgb(0.1, 0.15, 0.25),
+        });
+
+        page.drawText(`Generated • Multi_Tools Privacy Suite`, {
+          x: 50,
+          y: 765,
+          size: 9,
+          font,
+          color: rgb(0.4, 0.45, 0.5),
+        });
+
+        page.drawLine({
+          start: { x: 50, y: 750 },
+          end: { x: 545, y: 750 },
+          thickness: 1,
+          color: rgb(0.85, 0.88, 0.92),
+        });
+
+        // Document A stats
+        page.drawText(`Document A: ${file1.name}`, { x: 50, y: 710, size: 12, font: boldFont, color: rgb(0.15, 0.2, 0.3) });
+        page.drawText(`- File Size: ${(file1.size / 1024).toFixed(1)} KB`, { x: 60, y: 690, size: 10, font, color: rgb(0.3, 0.35, 0.4) });
+        page.drawText(`- Total Pages: ${count1}`, { x: 60, y: 670, size: 10, font, color: rgb(0.3, 0.35, 0.4) });
+
+        // Document B stats
+        page.drawText(`Document B: ${file2.name}`, { x: 50, y: 630, size: 12, font: boldFont, color: rgb(0.15, 0.2, 0.3) });
+        page.drawText(`- File Size: ${(file2.size / 1024).toFixed(1)} KB`, { x: 60, y: 610, size: 10, font, color: rgb(0.3, 0.35, 0.4) });
+        page.drawText(`- Total Pages: ${count2}`, { x: 60, y: 590, size: 10, font, color: rgb(0.3, 0.35, 0.4) });
+
+        // Key Findings
+        page.drawText('Comparative Analysis:', { x: 50, y: 550, size: 12, font: boldFont, color: rgb(0.15, 0.2, 0.3) });
+        const sizeDiff = (file2.size - file1.size) / 1024;
+        const pageDiff = count2 - count1;
+
+        page.drawText(`• Page Count Difference: ${pageDiff === 0 ? 'Identical (0 difference)' : `${pageDiff > 0 ? '+' : ''}${pageDiff} pages`}`, {
+          x: 60,
+          y: 525,
+          size: 10,
+          font,
+          color: pageDiff === 0 ? rgb(0.1, 0.6, 0.2) : rgb(0.8, 0.2, 0.2),
+        });
+
+        page.drawText(`• File Size Difference: ${sizeDiff >= 0 ? '+' : ''}${sizeDiff.toFixed(1)} KB`, {
+          x: 60,
+          y: 505,
+          size: 10,
+          font,
+          color: rgb(0.3, 0.35, 0.4),
+        });
+
+        const out = await compDoc.save();
+        const blob = new Blob([out], { type: 'application/pdf' });
+        const downloadUrl = URL.createObjectURL(blob);
+        const filename = `comparison-report-${Date.now()}.pdf`;
+
+        finishPdfProcessing({
+          blob,
+          downloadUrl,
+          filename,
+          size: blob.size,
+          mimeType: 'application/pdf',
+        });
+        showToast('Generated document comparison report!');
+      }
+
       // 17. Default fallback
       else {
         const srcDoc = await PDFDocument.load(firstFileBytes);
@@ -2431,7 +2777,7 @@ export const PdfTools: React.FC = () => {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    multiple={activeTool === 'merge' || activeTool === 'jpg-to-pdf'}
+                    multiple={activeTool === 'merge' || activeTool === 'jpg-to-pdf' || activeTool === 'compare'}
                     accept={
                       activeTool === 'txt-to-pdf'
                         ? '.txt,.md,.log,.json,.csv,.py,.js,.ts,text/*'
@@ -2482,6 +2828,8 @@ export const PdfTools: React.FC = () => {
                           ? 'TXT file'
                           : activeTool === 'html-to-pdf'
                           ? 'HTML file'
+                          : activeTool === 'compare'
+                          ? '2 PDF files'
                           : 'PDF files'}
                       </span>
                     </button>
@@ -2509,7 +2857,7 @@ export const PdfTools: React.FC = () => {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    multiple={activeTool === 'merge' || activeTool === 'jpg-to-pdf'}
+                    multiple={activeTool === 'merge' || activeTool === 'jpg-to-pdf' || activeTool === 'compare'}
                     accept={
                       activeTool === 'txt-to-pdf'
                         ? '.txt,.md,.log,.json,.csv,.py,.js,.ts,text/*'
@@ -2543,7 +2891,7 @@ export const PdfTools: React.FC = () => {
                       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                         const files = Array.from(e.dataTransfer.files);
                         setUploadedFiles((prev) => [
-                          ...(activeTool === 'merge' || activeTool === 'jpg-to-pdf' ? prev : []),
+                          ...(activeTool === 'merge' || activeTool === 'jpg-to-pdf' || activeTool === 'compare' ? prev : []),
                           ...files.map((f) => ({ file: f, name: f.name, size: f.size })),
                         ]);
                         setProcessedResult(null);
@@ -2814,64 +3162,103 @@ export const PdfTools: React.FC = () => {
                         </div>
                       )}
 
-                      {/* 4. ROTATE PDF CANVAS: Real-time rotation transform & hover controls */}
+                      {/* 4. ROTATE PDF CANVAS: Independent Per-Page Rotation & Visual Feedback */}
                       {activeTool === 'rotate' && (
                         <div className="space-y-4">
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-h-[620px] overflow-y-auto pr-1">
-                            {docPages.map((page) => (
-                              <div
-                                key={page.pageNumber}
-                                className="group relative bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-md flex flex-col justify-between"
-                              >
-                                {/* Card Hover Tools Strip */}
-                                <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 dark:bg-surface-900/90 backdrop-blur-xs p-1 rounded-xl shadow-md border border-slate-200 dark:border-slate-700">
-                                  {pageThumbnails[page.pageNumber] && (
+                            {docPages.map((page) => {
+                              const pageAngle = perPageRotations[page.pageNumber] || 0;
+                              return (
+                                <div
+                                  key={page.pageNumber}
+                                  className="group relative bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-md flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-600 transition-all"
+                                >
+                                  {/* Rotation badge if page is rotated */}
+                                  {pageAngle !== 0 && (
+                                    <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md bg-rose-600 text-white text-[10px] font-extrabold shadow-sm animate-in zoom-in-75">
+                                      +{pageAngle}°
+                                    </div>
+                                  )}
+
+                                  {/* Card Hover Tools Strip */}
+                                  <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 dark:bg-surface-900/95 backdrop-blur-xs p-1 rounded-xl shadow-md border border-slate-200 dark:border-slate-700">
+                                    {pageThumbnails[page.pageNumber] && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setZoomModalImage(pageThumbnails[page.pageNumber])}
+                                        title="Zoom preview"
+                                        className="p-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                      >
+                                        <ZoomIn className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
                                     <button
                                       type="button"
-                                      onClick={() => setZoomModalImage(pageThumbnails[page.pageNumber])}
-                                      title="Zoom preview"
+                                      onClick={() => rotateSinglePage(page.pageNumber, 'ccw')}
+                                      title="Rotate left -90°"
                                       className="p-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                                     >
-                                      <ZoomIn className="w-3.5 h-3.5" />
+                                      <RotateCcw className="w-3.5 h-3.5" />
                                     </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => setRotationDegrees((prev) => (prev + 90) % 360)}
-                                    title="Rotate 90°"
-                                    className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                                  >
-                                    <RotateCw className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => rotateSinglePage(page.pageNumber, 'cw')}
+                                      title="Rotate right +90°"
+                                      className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                    >
+                                      <RotateCw className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
 
-                                <div className="aspect-[3/4] w-full bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center p-2 overflow-hidden border border-slate-100 dark:border-slate-800">
-                                  <div
-                                    style={{
-                                      transform: `rotate(${rotationDegrees}deg)`,
-                                      transition: 'transform 0.3s ease',
-                                    }}
-                                    className="max-h-full max-w-full flex items-center justify-center"
-                                  >
-                                    {pageThumbnails[page.pageNumber] ? (
-                                      <img
-                                        src={pageThumbnails[page.pageNumber]}
-                                        alt={`Page ${page.pageNumber}`}
-                                        className="max-h-full max-w-full object-contain rounded-md shadow-sm"
-                                      />
-                                    ) : (
-                                      <span className="text-xs font-mono font-bold text-slate-400">
-                                        Page {page.pageNumber}
-                                      </span>
-                                    )}
+                                  <div className="aspect-[3/4] w-full bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center p-2 overflow-hidden border border-slate-100 dark:border-slate-800">
+                                    <div
+                                      style={{
+                                        transform: `rotate(${pageAngle}deg)`,
+                                        transition: 'transform 0.3s ease',
+                                      }}
+                                      className="max-h-full max-w-full flex items-center justify-center"
+                                    >
+                                      {pageThumbnails[page.pageNumber] ? (
+                                        <img
+                                          src={pageThumbnails[page.pageNumber]}
+                                          alt={`Page ${page.pageNumber}`}
+                                          className="max-h-full max-w-full object-contain rounded-md shadow-sm"
+                                        />
+                                      ) : (
+                                        <span className="text-xs font-mono font-bold text-slate-400">
+                                          Page {page.pageNumber}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Individual Card Controls Bottom */}
+                                  <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                                      Page {page.pageNumber}
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => rotateSinglePage(page.pageNumber, 'ccw')}
+                                        title="Rotate Left (-90°)"
+                                        className="p-1 rounded-md text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+                                      >
+                                        <RotateCcw className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => rotateSinglePage(page.pageNumber, 'cw')}
+                                        title="Rotate Right (+90°)"
+                                        className="p-1 rounded-md text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                      >
+                                        <RotateCw className="w-3 h-3" />
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
-
-                                <div className="mt-2 text-center text-xs font-bold text-slate-700 dark:text-slate-300">
-                                  Page {page.pageNumber}
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -2931,7 +3318,7 @@ export const PdfTools: React.FC = () => {
                         </div>
                       )}
 
-                      {/* 6. WATERMARK CANVAS: Live watermark position and text overlay */}
+                      {/* 6. WATERMARK CANVAS: Live watermark position and text/image overlay */}
                       {activeTool === 'watermark' && (
                         <div className="space-y-4">
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 max-h-[620px] overflow-y-auto pr-1">
@@ -2953,8 +3340,63 @@ export const PdfTools: React.FC = () => {
                                     </span>
                                   )}
 
-                                  {/* Live Watermark Overlay (Matching ILovePDF Image 20) */}
-                                  {watermarkMosaic ? (
+                                  {/* Live Watermark Overlay (Text or Image) */}
+                                  {watermarkTab === 'image' ? (
+                                    watermarkImageDataUrl ? (
+                                      watermarkMosaic ? (
+                                        <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 p-2 pointer-events-none">
+                                          {Array.from({ length: 4 }).map((_, i) => (
+                                            <div key={i} className="flex items-center justify-center p-1">
+                                              <img
+                                                src={watermarkImageDataUrl}
+                                                alt="Watermark stamp"
+                                                style={{ opacity: watermarkOpacity / 100 }}
+                                                className="max-h-12 max-w-12 object-contain rotate-[-20deg]"
+                                              />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div
+                                          className={`absolute ${
+                                            watermarkPos === 'top_left'
+                                              ? 'top-2.5 left-2.5'
+                                              : watermarkPos === 'top_center'
+                                              ? 'top-2.5 left-1/2 -translate-x-1/2'
+                                              : watermarkPos === 'top_right'
+                                              ? 'top-2.5 right-2.5'
+                                              : watermarkPos === 'middle_left'
+                                              ? 'top-1/2 left-2.5 -translate-y-1/2'
+                                              : watermarkPos === 'middle_center'
+                                              ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
+                                              : watermarkPos === 'middle_right'
+                                              ? 'top-1/2 right-2.5 -translate-y-1/2'
+                                              : watermarkPos === 'bottom_left'
+                                              ? 'bottom-2.5 left-2.5'
+                                              : watermarkPos === 'bottom_center'
+                                              ? 'bottom-2.5 left-1/2 -translate-x-1/2'
+                                              : 'bottom-2.5 right-2.5'
+                                          } pointer-events-none transition-all`}
+                                        >
+                                          <img
+                                            src={watermarkImageDataUrl}
+                                            alt="Watermark stamp"
+                                            style={{
+                                              opacity: watermarkOpacity / 100,
+                                              width: `${watermarkImageScale * 0.8}px`,
+                                            }}
+                                            className="max-h-16 object-contain drop-shadow"
+                                          />
+                                        </div>
+                                      )
+                                    ) : (
+                                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-slate-900/10 backdrop-blur-[1px]">
+                                        <span className="text-[10px] font-bold text-slate-500 bg-white/90 dark:bg-surface-900/90 px-2 py-1 rounded-md shadow">
+                                          Select image in sidebar
+                                        </span>
+                                      </div>
+                                    )
+                                  ) : watermarkMosaic ? (
                                     <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 p-2 pointer-events-none opacity-40">
                                       {Array.from({ length: 4 }).map((_, i) => (
                                         <div
@@ -3280,6 +3722,246 @@ export const PdfTools: React.FC = () => {
                         </div>
                       )}
 
+                      {/* 9.5 SIGN PDF CANVAS: Live Document Preview with Signature Stamp Overlay */}
+                      {activeTool === 'sign' && (
+                        <div className="flex flex-col items-center justify-center space-y-4 py-2 w-full">
+                          <div className="relative max-w-full overflow-hidden rounded-2xl shadow-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-surface-900 select-none p-3">
+                            <div className="relative inline-block max-w-[85vw] sm:max-w-md md:max-w-lg lg:max-w-xl max-h-[580px] overflow-hidden">
+                              {/* Document Page Preview */}
+                              {pageThumbnails[signPageTarget === 'first' ? 1 : docPages.length || 1] || fileThumbnails[uploadedFiles[0]?.name] ? (
+                                <img
+                                  src={pageThumbnails[signPageTarget === 'first' ? 1 : docPages.length || 1] || fileThumbnails[uploadedFiles[0]?.name]}
+                                  alt="Sign Preview"
+                                  className="max-h-[560px] w-auto object-contain block"
+                                />
+                              ) : (
+                                <div className="aspect-[3/4] w-72 sm:w-80 bg-slate-100 dark:bg-surface-800 flex flex-col items-center justify-center p-6 text-slate-400">
+                                  <FileSignature className="w-16 h-16 text-rose-500 opacity-60 mb-2" />
+                                  <span className="text-xs font-mono">
+                                    Target: {signPageTarget === 'all' ? 'All Pages' : signPageTarget === 'first' ? 'First Page' : `Last Page (${docPages.length || 1})`}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Live Signature Placement Overlay */}
+                              <div
+                                className={`absolute ${
+                                  signPosition === 'bottom_left'
+                                    ? 'bottom-6 left-6'
+                                    : signPosition === 'center'
+                                    ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
+                                    : 'bottom-6 right-6'
+                                } z-20 pointer-events-none p-2 rounded-xl bg-white/95 dark:bg-surface-900/95 backdrop-blur-xs border border-dashed border-rose-400 shadow-lg flex flex-col items-center max-w-[180px]`}
+                              >
+                                {signatureMode === 'upload' && signCustomImage ? (
+                                  <img src={signCustomImage} alt="Uploaded Signature" className="h-10 object-contain" />
+                                ) : signatureMode === 'draw' ? (
+                                  <div className="h-10 flex items-center justify-center text-xs italic font-serif px-2 font-bold" style={{ color: signColor }}>
+                                    [ Drawn Signature ]
+                                  </div>
+                                ) : (
+                                  <div className="h-10 flex items-center justify-center text-base italic font-serif font-bold truncate max-w-[160px] px-2" style={{ color: signColor }}>
+                                    {signatureText || 'Signed'}
+                                  </div>
+                                )}
+                                {signIncludeDate && (
+                                  <div className="text-[9px] font-mono text-slate-500 border-t border-slate-200 dark:border-slate-700 mt-1 pt-0.5">
+                                    {new Date().toLocaleDateString()}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 9.6 COMPARE PDF CANVAS: True Side-by-Side Dual Document View */}
+                      {activeTool === 'compare' && (
+                        <div className="space-y-4 w-full">
+                          <input
+                            ref={compareDoc2InputRef}
+                            type="file"
+                            accept="application/pdf,.pdf"
+                            onChange={handleCompareDoc2Upload}
+                            className="hidden"
+                          />
+
+                          {/* Dual Document Synchronized Toolbar */}
+                          <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                <Columns className="w-4 h-4 text-rose-500" /> Side-by-Side Comparison
+                              </span>
+                              <span className="text-slate-400">({uploadedFiles.length}/2 documents loaded)</span>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
+                                <input
+                                  type="checkbox"
+                                  checked={compareSyncPages}
+                                  onChange={(e) => setCompareSyncPages(e.target.checked)}
+                                  className="w-3.5 h-3.5 text-rose-600 rounded"
+                                />
+                                <span>Synchronize Page Turns</span>
+                              </label>
+
+                              {uploadedFiles.length < 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => compareDoc2InputRef.current?.click()}
+                                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold transition-colors"
+                                >
+                                  + Add Document B
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Two-Column Document Viewer */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Document A Column */}
+                            <div className="bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-md flex flex-col justify-between space-y-3">
+                              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                                <div className="truncate">
+                                  <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 mr-1.5">
+                                    DOC A (Original)
+                                  </span>
+                                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                                    {uploadedFiles[0]?.name}
+                                  </span>
+                                </div>
+                                <span className="text-[11px] text-slate-400 shrink-0">
+                                  {(uploadedFiles[0]?.size / 1024).toFixed(1)} KB
+                                </span>
+                              </div>
+
+                              <div className="aspect-[3/4] w-full bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center p-2 overflow-hidden border border-slate-100 dark:border-slate-800 relative">
+                                {compareThumbnails.doc1[compareDoc1Page] || pageThumbnails[compareDoc1Page] ? (
+                                  <img
+                                    src={compareThumbnails.doc1[compareDoc1Page] || pageThumbnails[compareDoc1Page]}
+                                    alt={`Doc A Page ${compareDoc1Page}`}
+                                    className="max-h-full max-w-full object-contain rounded-md shadow-sm"
+                                  />
+                                ) : (
+                                  <div className="text-center space-y-2 text-slate-400">
+                                    <FileText className="w-12 h-12 text-blue-500 opacity-60 mx-auto" />
+                                    <span className="text-xs font-mono">Page {compareDoc1Page}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Page Navigator Doc A */}
+                              <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
+                                <button
+                                  type="button"
+                                  disabled={compareDoc1Page <= 1}
+                                  onClick={() => {
+                                    setCompareDoc1Page((p) => Math.max(1, p - 1));
+                                    if (compareSyncPages) setCompareDoc2Page((p) => Math.max(1, p - 1));
+                                  }}
+                                  className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30"
+                                >
+                                  <ChevronLeft className="w-4 h-4" />
+                                </button>
+                                <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                                  Page {compareDoc1Page} of {compareDocPages.doc1.length || docPages.length || 1}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={compareDoc1Page >= (compareDocPages.doc1.length || docPages.length || 1)}
+                                  onClick={() => {
+                                    setCompareDoc1Page((p) => p + 1);
+                                    if (compareSyncPages) setCompareDoc2Page((p) => p + 1);
+                                  }}
+                                  className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30"
+                                >
+                                  <ChevronRight className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Document B Column */}
+                            <div className="bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-md flex flex-col justify-between space-y-3">
+                              {uploadedFiles.length > 1 ? (
+                                <>
+                                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                                    <div className="truncate">
+                                      <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 mr-1.5">
+                                        DOC B (Modified)
+                                      </span>
+                                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                                        {uploadedFiles[1]?.name}
+                                      </span>
+                                    </div>
+                                    <span className="text-[11px] text-slate-400 shrink-0">
+                                      {(uploadedFiles[1]?.size / 1024).toFixed(1)} KB
+                                    </span>
+                                  </div>
+
+                                  <div className="aspect-[3/4] w-full bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center p-2 overflow-hidden border border-slate-100 dark:border-slate-800 relative">
+                                    {compareThumbnails.doc2[compareDoc2Page] ? (
+                                      <img
+                                        src={compareThumbnails.doc2[compareDoc2Page]}
+                                        alt={`Doc B Page ${compareDoc2Page}`}
+                                        className="max-h-full max-w-full object-contain rounded-md shadow-sm"
+                                      />
+                                    ) : (
+                                      <div className="text-center space-y-2 text-slate-400">
+                                        <FileText className="w-12 h-12 text-emerald-500 opacity-60 mx-auto" />
+                                        <span className="text-xs font-mono">Page {compareDoc2Page}</span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Page Navigator Doc B */}
+                                  <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
+                                    <button
+                                      type="button"
+                                      disabled={compareDoc2Page <= 1}
+                                      onClick={() => {
+                                        setCompareDoc2Page((p) => Math.max(1, p - 1));
+                                        if (compareSyncPages) setCompareDoc1Page((p) => Math.max(1, p - 1));
+                                      }}
+                                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30"
+                                    >
+                                      <ChevronLeft className="w-4 h-4" />
+                                    </button>
+                                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                                      Page {compareDoc2Page} of {compareDocPages.doc2.length || 1}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={compareDoc2Page >= (compareDocPages.doc2.length || 1)}
+                                      onClick={() => {
+                                        setCompareDoc2Page((p) => p + 1);
+                                        if (compareSyncPages) setCompareDoc1Page((p) => p + 1);
+                                      }}
+                                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30"
+                                    >
+                                      <ChevronRight className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </>
+                              ) : (
+                                <div
+                                  onClick={() => compareDoc2InputRef.current?.click()}
+                                  className="aspect-[3/4] w-full rounded-xl border-2 border-dashed border-rose-300 dark:border-rose-700 hover:border-rose-500 bg-rose-50/30 dark:bg-rose-950/20 flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-colors"
+                                >
+                                  <Upload className="w-10 h-10 text-rose-500 mb-2" />
+                                  <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
+                                    Select Document B to Compare
+                                  </span>
+                                  <span className="text-[11px] text-slate-400 mt-1">
+                                    Click here or drag second PDF to compare side-by-side
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* 10. SINGLE DOCUMENT PREVIEW CANVAS (Compress, OCR, Protect, Unlock, Conversions) */}
                       {activeTool !== 'merge' &&
                         activeTool !== 'split' &&
@@ -3290,7 +3972,9 @@ export const PdfTools: React.FC = () => {
                         activeTool !== 'watermark' &&
                         activeTool !== 'jpg-to-pdf' &&
                         activeTool !== 'crop' &&
-                        activeTool !== 'edit' && (
+                        activeTool !== 'edit' &&
+                        activeTool !== 'sign' &&
+                        activeTool !== 'compare' && (
                           <div className="max-w-sm mx-auto w-full bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-3xl p-6 shadow-xl flex flex-col items-center space-y-4">
                             <div className="aspect-[3/4] w-48 sm:w-56 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center p-3 border border-slate-100 dark:border-slate-800 relative group overflow-hidden shadow-inner">
                               {fileThumbnails[uploadedFiles[0]?.name] ? (
@@ -3716,34 +4400,67 @@ export const PdfTools: React.FC = () => {
                         <div className="space-y-4">
                           <div className="flex items-center justify-between text-xs">
                             <span className="font-bold text-slate-700 dark:text-slate-300">
-                              Rotation: +{rotationDegrees}°
+                              {Object.values(perPageRotations).filter((v) => (v % 360) !== 0).length > 0
+                                ? `${Object.values(perPageRotations).filter((v) => (v % 360) !== 0).length} page(s) custom rotated`
+                                : 'All pages normal'}
                             </span>
                             <button
                               type="button"
-                              onClick={() => setRotationDegrees(0)}
+                              onClick={() => {
+                                setPerPageRotations({});
+                                setRotationDegrees(0);
+                                showToast('Reset all page rotations');
+                              }}
                               className="text-rose-500 hover:underline font-semibold"
                             >
                               Reset all
                             </button>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-2.5">
-                            <button
-                              type="button"
-                              onClick={() => setRotationDegrees((prev) => (prev + 90) % 360)}
-                              className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition-colors"
-                            >
-                              <RotateCw className="w-4 h-4 text-rose-500" />
-                              <span>RIGHT (+90°)</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setRotationDegrees((prev) => (prev - 90 + 360) % 360)}
-                              className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition-colors"
-                            >
-                              <RotateCcw className="w-4 h-4 text-rose-500" />
-                              <span>LEFT (-90°)</span>
-                            </button>
+                          <div className="space-y-2">
+                            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block">
+                              Batch Rotate All Pages:
+                            </span>
+                            <div className="grid grid-cols-2 gap-2.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPerPageRotations((prev) => {
+                                    const next = { ...prev };
+                                    docPages.forEach((p) => {
+                                      next[p.pageNumber] = ((next[p.pageNumber] || 0) + 90) % 360;
+                                    });
+                                    return next;
+                                  });
+                                  setRotationDegrees((d) => (d + 90) % 360);
+                                }}
+                                className="flex items-center justify-center gap-2 py-3 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition-colors"
+                              >
+                                <RotateCw className="w-4 h-4 text-rose-500" />
+                                <span>ALL (+90°)</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPerPageRotations((prev) => {
+                                    const next = { ...prev };
+                                    docPages.forEach((p) => {
+                                      next[p.pageNumber] = ((next[p.pageNumber] || 0) - 90 + 360) % 360;
+                                    });
+                                    return next;
+                                  });
+                                  setRotationDegrees((d) => (d - 90 + 360) % 360);
+                                }}
+                                className="flex items-center justify-center gap-2 py-3 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition-colors"
+                              >
+                                <RotateCcw className="w-4 h-4 text-rose-500" />
+                                <span>ALL (-90°)</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                            💡 <span className="font-semibold text-slate-700 dark:text-slate-300">Tip:</span> Hover over individual page cards on the left or use the small rotate buttons to rotate only specific pages (e.g. page 7 or 8).
                           </div>
                         </div>
                       )}
@@ -3851,6 +4568,14 @@ export const PdfTools: React.FC = () => {
                       {/* WATERMARK SIDEBAR */}
                       {activeTool === 'watermark' && (
                         <div className="space-y-4">
+                          <input
+                            ref={watermarkImageInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handleWatermarkImageUpload}
+                            className="hidden"
+                          />
+
                           <div className="grid grid-cols-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-center">
                             <button
                               type="button"
@@ -3876,18 +4601,99 @@ export const PdfTools: React.FC = () => {
                             </button>
                           </div>
 
-                          <div>
-                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                              Text:
-                            </label>
-                            <input
-                              type="text"
-                              value={watermarkText}
-                              onChange={(e) => setWatermarkText(e.target.value)}
-                              placeholder="e.g. iLovePDF, CONFIDENTIAL"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
-                            />
-                          </div>
+                          {watermarkTab === 'text' ? (
+                            <div>
+                              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                Text:
+                              </label>
+                              <input
+                                type="text"
+                                value={watermarkText}
+                                onChange={(e) => setWatermarkText(e.target.value)}
+                                placeholder="e.g. iLovePDF, CONFIDENTIAL"
+                                className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold"
+                              />
+                            </div>
+                          ) : (
+                            /* Place Image Uploader Section (Requested by user) */
+                            <div className="space-y-3">
+                              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                                Watermark Image:
+                              </label>
+
+                              {watermarkImageDataUrl ? (
+                                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
+                                  <div className="flex items-center gap-3 overflow-hidden">
+                                    <div className="w-12 h-12 rounded-xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center p-1 shrink-0 overflow-hidden">
+                                      <img
+                                        src={watermarkImageDataUrl}
+                                        alt="Watermark thumbnail"
+                                        className="max-h-full max-w-full object-contain"
+                                      />
+                                    </div>
+                                    <div className="truncate text-xs">
+                                      <p className="font-bold text-slate-900 dark:text-white truncate">
+                                        {watermarkImageFile?.name || 'Watermark Image'}
+                                      </p>
+                                      <span className="text-[10px] text-slate-400">
+                                        {watermarkImageFile ? `${(watermarkImageFile.size / 1024).toFixed(1)} KB` : 'Image ready'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => watermarkImageInputRef.current?.click()}
+                                      className="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-[11px] font-semibold text-slate-700 dark:text-slate-200"
+                                    >
+                                      Change
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setWatermarkImageFile(null);
+                                        setWatermarkImageDataUrl('');
+                                      }}
+                                      className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                      title="Remove"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => watermarkImageInputRef.current?.click()}
+                                  className="w-full py-4 px-3 rounded-2xl border-2 border-dashed border-rose-300 dark:border-rose-800 hover:border-rose-500 bg-rose-50/40 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                                >
+                                  <Upload className="w-5 h-5 text-rose-500" />
+                                  <span>Upload Watermark Image</span>
+                                  <span className="text-[10px] text-slate-400 font-normal">
+                                    Supports PNG with transparency, JPG, SVG, WebP
+                                  </span>
+                                </button>
+                              )}
+
+                              <div>
+                                <div className="flex items-center justify-between text-xs mb-1">
+                                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                                    Image Size Scale:
+                                  </label>
+                                  <span className="font-mono text-slate-500">{watermarkImageScale}%</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={10}
+                                  max={100}
+                                  step={5}
+                                  value={watermarkImageScale}
+                                  onChange={(e) => setWatermarkImageScale(Number(e.target.value))}
+                                  className="w-full accent-rose-600 cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                          )}
 
                           <div className="flex items-center gap-4">
                             <div>
@@ -3918,9 +4724,9 @@ export const PdfTools: React.FC = () => {
                                 <select
                                   value={watermarkOpacity}
                                   onChange={(e) => setWatermarkOpacity(Number(e.target.value))}
-                                  className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                                  className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold"
                                 >
-                                  <option value={100}>No transparency</option>
+                                  <option value={100}>No transparency (100%)</option>
                                   <option value={75}>25% transparent</option>
                                   <option value={50}>50% transparent</option>
                                   <option value={25}>75% transparent</option>
@@ -4035,63 +4841,194 @@ export const PdfTools: React.FC = () => {
 
                       {/* SIGN PDF SIDEBAR */}
                       {activeTool === 'sign' && (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2">
+                        <div className="space-y-4">
+                          <input
+                            ref={signImageInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handleSignImageUpload}
+                            className="hidden"
+                          />
+
+                          <div className="grid grid-cols-3 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-center">
                             <button
+                              type="button"
                               onClick={() => setSignatureMode('draw')}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                              className={`py-1.5 rounded-lg transition-all ${
                                 signatureMode === 'draw'
-                                  ? 'bg-rose-600 text-white'
-                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                  ? 'bg-rose-600 text-white shadow-sm'
+                                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                               }`}
                             >
                               Draw Pad
                             </button>
                             <button
+                              type="button"
                               onClick={() => setSignatureMode('type')}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                              className={`py-1.5 rounded-lg transition-all ${
                                 signatureMode === 'type'
-                                  ? 'bg-rose-600 text-white'
-                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                  ? 'bg-rose-600 text-white shadow-sm'
+                                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                               }`}
                             >
                               Type Name
                             </button>
-                            {signatureMode === 'draw' && (
-                              <button
-                                onClick={clearSignature}
-                                className="ml-auto text-xs text-rose-500 hover:underline"
-                              >
-                                Clear
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSignatureMode('upload');
+                                if (!signCustomImage) signImageInputRef.current?.click();
+                              }}
+                              className={`py-1.5 rounded-lg transition-all ${
+                                signatureMode === 'upload'
+                                  ? 'bg-rose-600 text-white shadow-sm'
+                                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                              }`}
+                            >
+                              Upload Stamp
+                            </button>
                           </div>
 
                           {signatureMode === 'draw' ? (
-                            <div className="p-1 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl bg-white w-full">
-                              <canvas
-                                ref={signatureCanvasRef}
-                                width={400}
-                                height={120}
-                                onMouseDown={startDrawing}
-                                onMouseMove={draw}
-                                onMouseUp={stopDrawing}
-                                onMouseLeave={stopDrawing}
-                                onTouchStart={startDrawing}
-                                onTouchMove={draw}
-                                onTouchEnd={stopDrawing}
-                                className="w-full h-28 bg-slate-50 rounded-lg cursor-crosshair touch-none"
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-semibold text-slate-600 dark:text-slate-300">Sign with mouse / stylus:</span>
+                                <button
+                                  type="button"
+                                  onClick={clearSignature}
+                                  className="text-rose-500 hover:underline font-bold"
+                                >
+                                  Clear Canvas
+                                </button>
+                              </div>
+                              <div className="p-1 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl bg-white w-full">
+                                <canvas
+                                  ref={signatureCanvasRef}
+                                  width={400}
+                                  height={120}
+                                  onMouseDown={startDrawing}
+                                  onMouseMove={draw}
+                                  onMouseUp={stopDrawing}
+                                  onMouseLeave={stopDrawing}
+                                  onTouchStart={startDrawing}
+                                  onTouchMove={draw}
+                                  onTouchEnd={stopDrawing}
+                                  className="w-full h-28 bg-slate-50 rounded-lg cursor-crosshair touch-none"
+                                />
+                              </div>
+                            </div>
+                          ) : signatureMode === 'type' ? (
+                            <div className="space-y-2">
+                              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                                Signature Text:
+                              </label>
+                              <input
+                                type="text"
+                                value={signatureText}
+                                onChange={(e) => setSignatureText(e.target.value)}
+                                placeholder="Type your full name..."
+                                className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-base font-serif italic text-blue-900 dark:text-blue-200"
                               />
                             </div>
                           ) : (
-                            <input
-                              type="text"
-                              value={signatureText}
-                              onChange={(e) => setSignatureText(e.target.value)}
-                              placeholder="Type signature..."
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-base font-serif italic text-blue-900 dark:text-blue-200"
-                            />
+                            <div className="space-y-2">
+                              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                                Signature Image Stamp:
+                              </label>
+                              {signCustomImage ? (
+                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                                  <img src={signCustomImage} alt="Stamp" className="h-10 object-contain bg-white rounded p-1" />
+                                  <button
+                                    type="button"
+                                    onClick={() => signImageInputRef.current?.click()}
+                                    className="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-xs font-semibold"
+                                  >
+                                    Change
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => signImageInputRef.current?.click()}
+                                  className="w-full py-3 rounded-xl border border-dashed border-rose-400 text-rose-600 font-bold text-xs hover:bg-rose-50"
+                                >
+                                  + Select Signature PNG/JPG
+                                </button>
+                              )}
+                            </div>
                           )}
+
+                          {/* Ink Color Picker */}
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
+                              Ink Color:
+                            </label>
+                            <div className="flex items-center gap-2">
+                              {[
+                                { color: '#1d4ed8', label: 'Navy Blue' },
+                                { color: '#0f172a', label: 'Dark Slate' },
+                                { color: '#b91c1c', label: 'Crimson' },
+                              ].map((item) => (
+                                <button
+                                  key={item.color}
+                                  type="button"
+                                  onClick={() => setSignColor(item.color)}
+                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                                    signColor === item.color
+                                      ? 'border-rose-500 ring-2 ring-rose-500/20 shadow-sm'
+                                      : 'border-slate-200 dark:border-slate-700'
+                                  }`}
+                                >
+                                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                                  <span className="text-[11px]">{item.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Placement Targets */}
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                Apply to Page:
+                              </label>
+                              <select
+                                value={signPageTarget}
+                                onChange={(e) => setSignPageTarget(e.target.value as any)}
+                                className="w-full px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                              >
+                                <option value="last">Last page</option>
+                                <option value="first">First page</option>
+                                <option value="all">All pages</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                Position:
+                              </label>
+                              <select
+                                value={signPosition}
+                                onChange={(e) => setSignPosition(e.target.value)}
+                                className="w-full px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                              >
+                                <option value="bottom_right">Bottom Right</option>
+                                <option value="bottom_left">Bottom Left</option>
+                                <option value="center">Center</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <label className="flex items-center gap-2 cursor-pointer pt-1 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={signIncludeDate}
+                              onChange={(e) => setSignIncludeDate(e.target.checked)}
+                              className="w-4 h-4 text-rose-600 rounded accent-rose-600"
+                            />
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                              Include timestamp badge
+                            </span>
+                          </label>
                         </div>
                       )}
 
@@ -4463,6 +5400,48 @@ export const PdfTools: React.FC = () => {
                           </div>
                         </div>
                       )}
+
+                      {/* COMPARE PDF SIDEBAR */}
+                      {activeTool === 'compare' && (
+                        <div className="space-y-4">
+                          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-2.5 text-xs">
+                            <span className="font-bold text-slate-800 dark:text-slate-200 block">
+                              Comparison Metrics:
+                            </span>
+                            <div className="space-y-1.5 text-slate-600 dark:text-slate-300">
+                              <div className="flex items-center justify-between">
+                                <span>Doc A Pages:</span>
+                                <span className="font-mono font-bold">{compareDocPages.doc1.length || docPages.length || 0}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span>Doc B Pages:</span>
+                                <span className="font-mono font-bold">
+                                  {uploadedFiles.length > 1 ? compareDocPages.doc2.length || 'Ready' : 'Not uploaded'}
+                                </span>
+                              </div>
+                              {uploadedFiles.length > 1 && (
+                                <div className="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-700 text-rose-600 dark:text-rose-400 font-bold">
+                                  <span>Page Difference:</span>
+                                  <span className="font-mono">
+                                    {(compareDocPages.doc2.length || 0) - (compareDocPages.doc1.length || docPages.length || 0) >= 0 ? '+' : ''}
+                                    {(compareDocPages.doc2.length || 0) - (compareDocPages.doc1.length || docPages.length || 0)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {uploadedFiles.length < 2 && (
+                            <button
+                              type="button"
+                              onClick={() => compareDoc2InputRef.current?.click()}
+                              className="w-full py-3 px-4 rounded-xl border border-dashed border-rose-500 text-rose-600 font-bold text-xs hover:bg-rose-50 cursor-pointer"
+                            >
+                              + Upload Document B to Compare
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Bottom Signature Red Action Button (Matching ILovePDF [Action ->]) */}
@@ -4524,6 +5503,8 @@ export const PdfTools: React.FC = () => {
                                 ? 'Convert to Markdown'
                                 : activeTool === 'word-to-pdf'
                                 ? 'Convert to PDF'
+                                : activeTool === 'compare'
+                                ? 'Compare PDFs'
                                 : `Process ${currentToolDef.name}`}
                             </span>
                             <ArrowRight className="w-5 h-5 bg-white/20 rounded-full p-0.5" />

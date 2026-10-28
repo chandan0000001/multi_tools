@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@pdfsmaller/pdf-decrypt": "^1.0.1",
+    "@pdfsmaller/pdf-encrypt": "^1.2.0",
     "@types/pako": "^2.0.4",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
