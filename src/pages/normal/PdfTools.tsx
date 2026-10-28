@@ -7,7 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
 import { inflate } from 'pako';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt';
-import { decryptPDF, isEncrypted } from '@pdfsmaller/pdf-decrypt';
+import { universalDecryptPdf as decryptPDF, checkPdfEncryption as isEncrypted } from '../../utils/pdfDecryptor';
 import { OrganizePdfWorkspace } from '../../components/pdf/OrganizePdfWorkspace';
 import { PositionGridPicker } from '../../components/pdf/PositionGridPicker';
 import { renderPdfPageThumbnail } from '../../utils/pdfRenderer';

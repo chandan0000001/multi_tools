@@ -92,6 +92,9 @@ function createMinimalJpg(): Uint8Array {
   ]);
 }
 
+import { encryptPDF } from '@pdfsmaller/pdf-encrypt';
+import { checkPdfEncryption, universalDecryptPdf } from '../utils/pdfDecryptor';
+
 describe('PDF Processing Suite (In-Memory Fast Architecture)', () => {
   let sampleMergePart1: Uint8Array;
   let sampleMergePart2: Uint8Array;
@@ -388,5 +391,33 @@ describe('PDF Processing Suite (In-Memory Fast Architecture)', () => {
     const savedBytes = await doc.save();
     const reloaded = await PDFDocument.load(savedBytes);
     expect(reloaded.getPageCount()).toBe(2);
+  });
+
+  it('checks unencrypted PDF correctly', async () => {
+    const encInfo = await checkPdfEncryption(sampleContract);
+    expect(encInfo.encrypted).toBe(false);
+  });
+
+  it('encrypts with AES-256 and decrypts with universalDecryptPdf', async () => {
+    const password = 'TestSecretPassword123';
+    const encryptedBytes = await encryptPDF(sampleContract, password);
+    const encInfo = await checkPdfEncryption(encryptedBytes);
+
+    expect(encInfo.encrypted).toBe(true);
+    expect(encInfo.algorithm).toBe('AES-256');
+    expect(encInfo.version).toBe(5);
+    expect(encInfo.revision).toBe(6);
+
+    // Decrypt with correct password
+    const decryptedBytes = await universalDecryptPdf(encryptedBytes, password);
+    const decryptedEncInfo = await checkPdfEncryption(decryptedBytes);
+    expect(decryptedEncInfo.encrypted).toBe(false);
+
+    // Load decrypted PDF
+    const decryptedDoc = await PDFDocument.load(decryptedBytes);
+    expect(decryptedDoc.getPageCount()).toBe(2);
+
+    // Decrypt with wrong password fails
+    await expect(universalDecryptPdf(encryptedBytes, 'WrongPassword')).rejects.toThrow();
   });
 });
