@@ -68,29 +68,38 @@ The built-in PDF Suite (`/normalUser/pdf-tools`) covers all operations previousl
 ```
 PDF Suite (100% In-Browser Execution)
 ├── Organize & Structure
-│   ├── Merge PDF (Combine multiple documents)
+│   ├── Merge PDF (Combine multiple documents with reordering & instant card removal)
 │   ├── Split PDF (Visual page picker, custom ranges, extract all)
-│   ├── Remove Pages (Delete specific pages)
-│   ├── Rotate PDF (Rotate 90°, 180°, 270°)
-│   └── Reorder Pages (Rearrange page sequences)
+│   ├── Remove Pages (Delete specific pages with instant preview)
+│   ├── Rotate PDF (Per-page independent rotation: 90°, 180°, 270°)
+│   ├── Organize PDF (Interactive visual page reordering & canvas grid)
+│   └── Compare PDF (Side-by-side synchronized dual document viewer)
 ├── Optimize & Convert
-│   ├── Compress PDF (Client-side memory compression)
-│   ├── OCR Searchable PDF (Extract & embed optical text layer)
+│   ├── Compress PDF (Client-side memory compression with savings metrics)
+│   ├── OCR Searchable PDF (Extract & embed optical text layer via Tesseract WASM)
 │   ├── PDF to TXT (Extract plain text with pako stream inflation)
 │   ├── TXT to PDF (Paginated typography formatting)
-│   ├── JPG to PDF (Direct image to standard document)
+│   ├── JPG to PDF (Combine multiple images with custom margins & orientation)
 │   ├── Word to PDF & Excel to PDF (Document converters)
 │   └── HTML to PDF (Sanitized web document compilation)
 ├── Edit & Enhance
-│   ├── Add Watermark (Text, opacity, rotation, and custom positioning)
-│   ├── Add Page Numbers (Custom headers, footers, and alignments)
-│   ├── Draw / Stamp Signature (Interactive signature canvas)
-│   └── Crop & Header / Footer Insertion
+│   ├── Add Watermark (Text, opacity, rotation, and live 3x3 position overlay)
+│   ├── Add Page Numbers (Custom headers, footers, alignments, and formats)
+│   ├── Draw / Stamp Signature (Signature canvas + PNG stamp upload)
+│   ├── PDF Editor (Free OCR & text annotation overlay)
+│   └── Crop PDF (Trim margins or specific regions per page)
 └── Security & Privacy
-    ├── Protect PDF (Standard password encryption)
-    ├── Unlock PDF (Remove restrictions with known password)
+    ├── Protect PDF (AES-256 client-side password encryption)
+    ├── Unlock PDF (Universal in-browser decryption: AES-128 V=4 R=4, AES-256, & RC4)
     └── Redact & Flatten Annotations
 ```
+
+### 🔐 Universal Client-Side PDF Decryptor
+Our custom in-browser decryption engine ([`src/utils/pdfDecryptor.ts`](src/utils/pdfDecryptor.ts)) implements:
+- **AES-128 (V=4, R=4)**: Standard ISO 32000-1 Algorithm 1 (salted MD5 key derivation), Algorithm 2, Algorithm 3.5 (user authentication), and Algorithm 3.7 (owner key recovery).
+- **Object Stream (`/ObjStm`) Interception**: Automatically decrypts encrypted object streams and incremental updates at parse time so documents created by Adobe Acrobat and Microsoft Print to PDF unlock smoothly without missing page catalogs.
+- **AES-256 (V=5, R=6) & RC4 (V=1–3)**: Seamless password authentication with zero server calls.
+- **iLovePDF-Style Card & Canvas Controls**: Fast 1-click **`X`** cross button on every PDF card to remove misselected files and pick another instantly.
 
 ---
 
@@ -131,10 +140,11 @@ flowchart TD
 - **Framework**: [React 18](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
 - **Bundler & Build Tool**: [Vite 6](https://vitejs.dev/) with Rollup chunk optimization
 - **Styling**: [Tailwind CSS 3](https://tailwindcss.com/) (Obsidian/Slate theme, responsive design)
-- **Document Engine**: [`pdf-lib`](https://pdf-lib.js.org/) + [`pako`](https://github.com/nodeca/pako) (Flate/Deflate stream decompression)
+- **Document & PDF Engine**: [`pdf-lib`](https://pdf-lib.js.org/) + [`pdfjs-dist`](https://mozilla.github.io/pdf.js/) + [`pako`](https://github.com/nodeca/pako)
+- **Encryption & Security**: Web Crypto API (`window.crypto.subtle`) + `@pdfsmaller/pdf-encrypt` + Custom V=4 R=4 AES-128 Decryptor
 - **Optical Recognition**: [`tesseract.js`](https://github.com/naptha/tesseract.js) (Client-side WebAssembly OCR)
 - **Icons**: [`lucide-react`](https://lucide.dev/) (Tree-shaken dynamic icon mapping)
-- **Testing**: [`vitest`](https://vitest.dev/) (In-memory automated test suite)
+- **Testing**: [`vitest`](https://vitest.dev/) (24 in-memory automated unit tests)
 
 ---
 
