@@ -420,4 +420,29 @@ describe('PDF Processing Suite (In-Memory Fast Architecture)', () => {
     // Decrypt with wrong password fails
     await expect(universalDecryptPdf(encryptedBytes, 'WrongPassword')).rejects.toThrow();
   });
+
+  it('decrypts V=4 AES-128 password-protected PDF with object streams', async () => {
+    const fs = await import('fs');
+    const path = '/home/chandan/Downloads/TOC_Lab_Solutions_by_Nikhil_Patnaik-protected.pdf';
+    if (!fs.existsSync(path)) return;
+
+    const fileBytes = fs.readFileSync(path);
+    const encInfo = await checkPdfEncryption(fileBytes);
+    expect(encInfo.encrypted).toBe(true);
+    expect(encInfo.algorithm).toBe('AES-128');
+    expect(encInfo.version).toBe(4);
+
+    // Wrong password fails cleanly
+    await expect(universalDecryptPdf(fileBytes, '12340')).rejects.toThrow('Incorrect password');
+
+    // Correct password succeeds
+    const decryptedBytes = await universalDecryptPdf(fileBytes, '1234');
+    expect(decryptedBytes.length).toBeGreaterThan(0);
+
+    const doc = await PDFDocument.load(decryptedBytes);
+    expect(doc.getPageCount()).toBe(48);
+
+    const checkAgain = await checkPdfEncryption(decryptedBytes);
+    expect(checkAgain.encrypted).toBe(false);
+  });
 });
