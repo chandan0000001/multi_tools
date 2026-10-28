@@ -2973,6 +2973,46 @@ export const PdfTools: React.FC = () => {
 
                     {/* CANVAS CONTENT: TOOL SPECIFIC CARD VISUALIZATION */}
                     <div className="flex-1 flex flex-col justify-center">
+                      {/* Active File Header Strip for page-based and single-file tools */}
+                      {activeTool !== 'merge' &&
+                        activeTool !== 'jpg-to-pdf' &&
+                        uploadedFiles.length > 0 &&
+                        (activeTool === 'split' ||
+                          activeTool === 'extract-pages' ||
+                          activeTool === 'remove-pages' ||
+                          activeTool === 'rotate' ||
+                          activeTool === 'page-numbers' ||
+                          activeTool === 'watermark' ||
+                          activeTool === 'crop' ||
+                          activeTool === 'sign' ||
+                          activeTool === 'edit') && (
+                          <div className="flex items-center justify-between bg-white/95 dark:bg-surface-900/95 backdrop-blur-xs border border-slate-200 dark:border-slate-800 rounded-2xl px-4 py-2 shadow-xs mb-4">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-7 h-7 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                                <FileText className="w-4 h-4" />
+                              </div>
+                              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate" title={uploadedFiles[0]?.name}>
+                                {uploadedFiles[0]?.name}
+                              </span>
+                              <span className="text-[11px] text-slate-400 shrink-0 hidden sm:inline">
+                                ({(uploadedFiles[0]?.size / 1024).toFixed(1)} KB{docPages.length > 0 ? ` • ${docPages.length} Pages` : ''})
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setUploadedFiles([]);
+                                setProcessedResult(null);
+                                showToast('Removed file');
+                              }}
+                              className="flex items-center gap-1.5 text-xs font-semibold text-rose-500 hover:text-white hover:bg-rose-600 px-2.5 py-1 rounded-xl border border-rose-200 dark:border-rose-900/60 shadow-2xs transition-all cursor-pointer"
+                              title="Remove this PDF and choose another"
+                            >
+                              <X className="w-3.5 h-3.5 stroke-[2.5]" />
+                              <span>Remove PDF</span>
+                            </button>
+                          </div>
+                        )}
                       {/* 1. MERGE PDF CANVAS: File Cards with cover thumbnail & hover tools */}
                       {activeTool === 'merge' && (
                         <div className="space-y-4">
@@ -2982,6 +3022,21 @@ export const PdfTools: React.FC = () => {
                                 key={idx}
                                 className="group relative bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 shadow-md hover:shadow-xl hover:border-slate-300 dark:hover:border-slate-600 transition-all flex flex-col justify-between"
                               >
+                                {/* Quick Cross Remove Button */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setUploadedFiles((prev) => prev.filter((_, i) => i !== idx));
+                                    showToast(`Removed ${item.name}`);
+                                  }}
+                                  title="Remove this PDF"
+                                  aria-label={`Remove ${item.name}`}
+                                  className="absolute -top-2.5 -right-2.5 z-20 w-7 h-7 rounded-full bg-white dark:bg-surface-800 text-rose-500 hover:text-white hover:bg-rose-600 border border-slate-200 dark:border-slate-700 shadow-md flex items-center justify-center transition-all cursor-pointer hover:scale-110 active:scale-95"
+                                >
+                                  <X className="w-3.5 h-3.5 stroke-[2.5]" />
+                                </button>
+
                                 {/* Card Hover Tools Strip */}
                                 <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 dark:bg-surface-900/90 backdrop-blur-xs p-1 rounded-xl shadow-md border border-slate-200 dark:border-slate-700">
                                   {fileThumbnails[item.name] && (
@@ -2994,14 +3049,6 @@ export const PdfTools: React.FC = () => {
                                       <ZoomIn className="w-3.5 h-3.5" />
                                     </button>
                                   )}
-                                  <button
-                                    type="button"
-                                    onClick={() => setUploadedFiles(uploadedFiles.filter((_, i) => i !== idx))}
-                                    title="Remove file"
-                                    className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
                                 </div>
 
                                 {/* Thumbnail Area */}
@@ -3496,6 +3543,21 @@ export const PdfTools: React.FC = () => {
                                 key={idx}
                                 className="group relative bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-md flex flex-col justify-between"
                               >
+                                {/* Quick Cross Remove Button */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setUploadedFiles((prev) => prev.filter((_, i) => i !== idx));
+                                    showToast(`Removed ${item.name}`);
+                                  }}
+                                  title="Remove this image"
+                                  aria-label={`Remove ${item.name}`}
+                                  className="absolute -top-2.5 -right-2.5 z-20 w-7 h-7 rounded-full bg-white dark:bg-surface-800 text-rose-500 hover:text-white hover:bg-rose-600 border border-slate-200 dark:border-slate-700 shadow-md flex items-center justify-center transition-all cursor-pointer hover:scale-110 active:scale-95"
+                                >
+                                  <X className="w-3.5 h-3.5 stroke-[2.5]" />
+                                </button>
+
                                 <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 dark:bg-surface-900/90 backdrop-blur-xs p-1 rounded-xl shadow-md border border-slate-200 dark:border-slate-700">
                                   {fileThumbnails[item.name] && (
                                     <button
@@ -3507,14 +3569,6 @@ export const PdfTools: React.FC = () => {
                                       <ZoomIn className="w-3.5 h-3.5" />
                                     </button>
                                   )}
-                                  <button
-                                    type="button"
-                                    onClick={() => setUploadedFiles(uploadedFiles.filter((_, i) => i !== idx))}
-                                    title="Remove image"
-                                    className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
                                 </div>
 
                                 <div className="aspect-[3/4] w-full bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center p-2 overflow-hidden border border-slate-100 dark:border-slate-800">
@@ -4021,53 +4075,82 @@ export const PdfTools: React.FC = () => {
                         activeTool !== 'edit' &&
                         activeTool !== 'sign' &&
                         activeTool !== 'compare' && (
-                          <div className="max-w-sm mx-auto w-full bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700 rounded-3xl p-6 shadow-xl flex flex-col items-center space-y-4">
-                            <div className="aspect-[3/4] w-48 sm:w-56 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center p-3 border border-slate-100 dark:border-slate-800 relative group overflow-hidden shadow-inner">
-                              {fileThumbnails[uploadedFiles[0]?.name] ? (
-                                <img
-                                  src={fileThumbnails[uploadedFiles[0]?.name]}
-                                  alt={uploadedFiles[0]?.name}
-                                  className="max-h-full max-w-full object-contain rounded-xl"
-                                />
-                              ) : activeTool === 'unlock' || isDocEncrypted ? (
-                                <div className="text-center space-y-2.5 p-3 flex flex-col items-center justify-center">
-                                  <div className="w-16 h-16 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shadow-inner">
-                                    <Lock className="w-8 h-8" />
-                                  </div>
-                                  <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider block">
-                                    Locked PDF
-                                  </span>
-                                </div>
-                              ) : (
-                                <FileText className="w-16 h-16 text-rose-500 opacity-60" />
-                              )}
-
-                              {fileThumbnails[uploadedFiles[0]?.name] && (
+                          <div
+                            className={`w-full ${
+                              uploadedFiles.length === 1
+                                ? 'max-w-sm mx-auto'
+                                : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto'
+                            }`}
+                          >
+                            {uploadedFiles.map((fileItem, idx) => (
+                              <div
+                                key={idx}
+                                className="relative bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-700/80 rounded-3xl p-6 shadow-xl flex flex-col items-center space-y-4 group hover:border-slate-300 dark:hover:border-slate-600 transition-all"
+                              >
+                                {/* Cross option to remove the PDF (iLovePDF style) */}
                                 <button
                                   type="button"
-                                  onClick={() => setZoomModalImage(fileThumbnails[uploadedFiles[0]?.name])}
-                                  className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white gap-1.5 text-xs font-semibold"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setUploadedFiles((prev) => prev.filter((_, i) => i !== idx));
+                                    setProcessedResult(null);
+                                    showToast(`Removed ${fileItem.name}`);
+                                  }}
+                                  title="Remove this PDF"
+                                  aria-label={`Remove ${fileItem.name}`}
+                                  className="absolute -top-3 -right-3 z-30 w-8 h-8 rounded-full bg-white dark:bg-surface-800 text-rose-500 hover:text-white hover:bg-rose-600 border-2 border-slate-100 dark:border-slate-700 shadow-lg flex items-center justify-center transition-all cursor-pointer hover:scale-110 active:scale-95"
                                 >
-                                  <ZoomIn className="w-5 h-5" />
-                                  <span>Preview</span>
+                                  <X className="w-4 h-4 stroke-[2.5]" />
                                 </button>
-                              )}
-                            </div>
 
-                            <div className="text-center space-y-1 w-full truncate">
-                              <h4 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white truncate">
-                                {uploadedFiles[0]?.name}
-                              </h4>
-                              <p className="text-xs text-slate-400 font-mono">
-                                {(uploadedFiles[0]?.size / 1024).toFixed(1)} KB
-                                {docPages.length > 0 && ` • ${docPages.length} Pages`}
-                              </p>
-                              {activeTool === 'unlock' && (
-                                <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold pt-1">
-                                  🔒 Password required to unlock
-                                </p>
-                              )}
-                            </div>
+                                <div className="aspect-[3/4] w-48 sm:w-56 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center p-3 border border-slate-100 dark:border-slate-800 relative group overflow-hidden shadow-inner">
+                                  {fileThumbnails[fileItem.name] ? (
+                                    <img
+                                      src={fileThumbnails[fileItem.name]}
+                                      alt={fileItem.name}
+                                      className="max-h-full max-w-full object-contain rounded-xl"
+                                    />
+                                  ) : activeTool === 'unlock' || isDocEncrypted ? (
+                                    <div className="text-center space-y-2.5 p-3 flex flex-col items-center justify-center">
+                                      <div className="w-16 h-16 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shadow-inner">
+                                        <Lock className="w-8 h-8" />
+                                      </div>
+                                      <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider block">
+                                        Locked PDF
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <FileText className="w-16 h-16 text-rose-500 opacity-60" />
+                                  )}
+
+                                  {fileThumbnails[fileItem.name] && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setZoomModalImage(fileThumbnails[fileItem.name])}
+                                      className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white gap-1.5 text-xs font-semibold"
+                                    >
+                                      <ZoomIn className="w-5 h-5" />
+                                      <span>Preview</span>
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="text-center space-y-1 w-full truncate">
+                                  <h4 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white truncate" title={fileItem.name}>
+                                    {fileItem.name}
+                                  </h4>
+                                  <p className="text-xs text-slate-400 font-mono">
+                                    {(fileItem.size / 1024).toFixed(1)} KB
+                                    {idx === 0 && docPages.length > 0 && ` • ${docPages.length} Pages`}
+                                  </p>
+                                  {activeTool === 'unlock' && (
+                                    <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold pt-1">
+                                      🔒 Password required to unlock
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
                     </div>
@@ -4083,9 +4166,24 @@ export const PdfTools: React.FC = () => {
                         <h3 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
                           {currentToolDef.name}
                         </h3>
-                        <span className="text-xs font-semibold text-slate-400">
-                          {uploadedFiles.length} file(s)
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-slate-400">
+                            {uploadedFiles.length} file(s)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUploadedFiles([]);
+                              setProcessedResult(null);
+                              showToast('Removed all files');
+                            }}
+                            title="Remove file(s) and select another"
+                            className="px-2 py-0.5 rounded-lg text-rose-600 hover:text-white hover:bg-rose-600 dark:text-rose-400 dark:hover:bg-rose-600 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer border border-rose-200 dark:border-rose-900/60 shadow-2xs"
+                          >
+                            <X className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>Remove</span>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Info Banner Callout matching ILovePDF Style */}
