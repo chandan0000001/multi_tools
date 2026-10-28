@@ -337,4 +337,56 @@ describe('PDF Processing Suite (In-Memory Fast Architecture)', () => {
     const txtBlob = new Blob([new TextEncoder().encode(extracted)], { type: 'text/plain' });
     expect(txtBlob.size).toBeGreaterThan(50);
   });
+
+  it('crops PDF page dimensions accurately by adjusting cropBox and mediaBox', async () => {
+    const doc = await PDFDocument.load(sampleMultiPage);
+    const pages = doc.getPages();
+    const firstPage = pages[0];
+    const { width, height } = firstPage.getSize();
+
+    // Crop to 80% width and 80% height with 10% margins
+    const cropX = 0.1 * width;
+    const cropY = 0.1 * height;
+    const cropW = 0.8 * width;
+    const cropH = 0.8 * height;
+
+    firstPage.setCropBox(cropX, cropY, cropW, cropH);
+    firstPage.setMediaBox(cropX, cropY, cropW, cropH);
+
+    const savedBytes = await doc.save();
+    const reloaded = await PDFDocument.load(savedBytes);
+    const reloadedPage = reloaded.getPages()[0];
+
+    // In pdf-lib, getWidth and getHeight respect MediaBox
+    expect(reloadedPage.getWidth()).toBeCloseTo(cropW, 1);
+    expect(reloadedPage.getHeight()).toBeCloseTo(cropH, 1);
+  });
+
+  it('adds official stamps and annotation markings to PDF documents', async () => {
+    const doc = await PDFDocument.load(sampleContract);
+    const font = await doc.embedFont(StandardFonts.HelveticaBold);
+    const firstPage = doc.getPages()[0];
+    const { width, height } = firstPage.getSize();
+
+    firstPage.drawRectangle({
+      x: width - 180,
+      y: height - 60,
+      width: 140,
+      height: 40,
+      borderColor: rgb(0.88, 0.12, 0.28),
+      borderWidth: 2,
+    });
+
+    firstPage.drawText('APPROVED', {
+      x: width - 160,
+      y: height - 48,
+      size: 20,
+      font,
+      color: rgb(0.88, 0.12, 0.28),
+    });
+
+    const savedBytes = await doc.save();
+    const reloaded = await PDFDocument.load(savedBytes);
+    expect(reloaded.getPageCount()).toBe(2);
+  });
 });
