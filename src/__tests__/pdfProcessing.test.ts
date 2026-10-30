@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 import { inflate } from 'pako';
+import { unlockPdfDocument } from '../components/pdf/tools/unlock/unlockEngine';
+import { protectPdfDocument } from '../components/pdf/tools/protect/protectEngine';
+import { mergePdfDocuments } from '../components/pdf/tools/merge/mergeEngine';
 
 function decodePdfHexString(hex: string): string {
   let str = '';
@@ -444,5 +447,43 @@ describe('PDF Processing Suite (In-Memory Fast Architecture)', () => {
 
     const checkAgain = await checkPdfEncryption(decryptedBytes);
     expect(checkAgain.encrypted).toBe(false);
+  });
+
+  describe('Modular PDF Engines', () => {
+    it('protects and unlocks using modular protectEngine and unlockEngine', async () => {
+      const pass = 'ModularSecretPass99!';
+      const protectRes = await protectPdfDocument(sampleContract, pass);
+      expect(protectRes.success).toBe(true);
+      expect(protectRes.bytes).toBeDefined();
+
+      // Check encryption status
+      const encInfo = await checkPdfEncryption(protectRes.bytes!);
+      expect(encInfo.encrypted).toBe(true);
+
+      // Wrong password fails
+      const failRes = await unlockPdfDocument(protectRes.bytes!, 'WrongPass');
+      expect(failRes.success).toBe(false);
+      expect(failRes.incorrectPassword).toBe(true);
+
+      // Correct password unlocks
+      const unlockRes = await unlockPdfDocument(protectRes.bytes!, pass);
+      expect(unlockRes.success).toBe(true);
+      expect(unlockRes.bytes).toBeDefined();
+
+      const doc = await PDFDocument.load(unlockRes.bytes!);
+      expect(doc.getPageCount()).toBe(2);
+    });
+
+    it('merges multiple PDF files using modular mergeEngine', async () => {
+      const file1 = new File([sampleContract], 'doc1.pdf', { type: 'application/pdf' });
+      const file2 = new File([sampleMultiPage], 'doc2.pdf', { type: 'application/pdf' });
+
+      const mergeRes = await mergePdfDocuments([file1, file2]);
+      expect(mergeRes.success).toBe(true);
+      expect(mergeRes.bytes).toBeDefined();
+
+      const mergedDoc = await PDFDocument.load(mergeRes.bytes!);
+      expect(mergedDoc.getPageCount()).toBe(6); // 2 + 4 = 6 pages
+    });
   });
 });

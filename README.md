@@ -101,6 +101,12 @@ Our custom in-browser decryption engine ([`src/utils/pdfDecryptor.ts`](src/utils
 - **AES-256 (V=5, R=6) & RC4 (V=1–3)**: Seamless password authentication with zero server calls.
 - **iLovePDF-Style Card & Canvas Controls**: Fast 1-click **`X`** cross button on every PDF card to remove misselected files and pick another instantly.
 
+### 📁 Modular Feature-Folder Architecture
+Each PDF tool is modularized into its own dedicated folder under `src/components/pdf/tools/<toolName>/`:
+- **Isolated Tool State**: State (passwords, file sequences, range inputs) is fully contained within its respective tool workspace without global re-renders.
+- **Dedicated Execution Engines**: Pure TypeScript client-side engines (`unlockEngine.ts`, `mergeEngine.ts`, `protectEngine.ts`) with zero UI coupling for seamless testability.
+- **Shared Standard Definitions**: Universal workspace props, tool identifiers, and processed results unified in [`src/components/pdf/types.ts`](src/components/pdf/types.ts).
+
 ---
 
 ## 🔄 User Workflow
@@ -144,7 +150,7 @@ flowchart TD
 - **Encryption & Security**: Web Crypto API (`window.crypto.subtle`) + `@pdfsmaller/pdf-encrypt` + Custom V=4 R=4 AES-128 Decryptor
 - **Optical Recognition**: [`tesseract.js`](https://github.com/naptha/tesseract.js) (Client-side WebAssembly OCR)
 - **Icons**: [`lucide-react`](https://lucide.dev/) (Tree-shaken dynamic icon mapping)
-- **Testing**: [`vitest`](https://vitest.dev/) (24 in-memory automated unit tests)
+- **Testing**: [`vitest`](https://vitest.dev/) (26 in-memory automated unit tests)
 
 ---
 

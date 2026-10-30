@@ -10,6 +10,9 @@ import { encryptPDF } from '@pdfsmaller/pdf-encrypt';
 import { universalDecryptPdf as decryptPDF, checkPdfEncryption as isEncrypted } from '../../utils/pdfDecryptor';
 import { OrganizePdfWorkspace } from '../../components/pdf/OrganizePdfWorkspace';
 import { PositionGridPicker } from '../../components/pdf/PositionGridPicker';
+import { UnlockPdfWorkspace } from '../../components/pdf/tools/unlock';
+import { MergePdfWorkspace } from '../../components/pdf/tools/merge';
+import { ProtectPdfWorkspace } from '../../components/pdf/tools/protect';
 import { renderPdfPageThumbnail } from '../../utils/pdfRenderer';
 import { recordToolActivity } from '../../utils/cacheManager';
 import {
@@ -2725,6 +2728,28 @@ export const PdfTools: React.FC = () => {
                 />
               )}
 
+              {/* B. Modular Tools in Dedicated Folders */}
+              {activeTool === 'unlock' && (
+                <UnlockPdfWorkspace
+                  initialFile={uploadedFiles[0]?.file}
+                  onSuccess={finishPdfProcessing}
+                />
+              )}
+
+              {activeTool === 'merge' && (
+                <MergePdfWorkspace
+                  initialFiles={uploadedFiles.map((f) => f.file)}
+                  onSuccess={finishPdfProcessing}
+                />
+              )}
+
+              {activeTool === 'protect' && (
+                <ProtectPdfWorkspace
+                  initialFile={uploadedFiles[0]?.file}
+                  onSuccess={finishPdfProcessing}
+                />
+              )}
+
               {/* B. Scan to PDF Camera Workspace */}
               {activeTool === 'scan-pdf' && (
                 <div className="p-5 sm:p-8 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 text-center">
@@ -2803,7 +2828,8 @@ export const PdfTools: React.FC = () => {
               )}
 
               {/* C. Clean Initial Upload State (Zero Files Uploaded) */}
-              {activeTool !== 'organize' && activeTool !== 'scan-pdf' && uploadedFiles.length === 0 && (
+              {!['organize', 'scan-pdf', 'unlock', 'merge', 'protect'].includes(activeTool as string) &&
+                uploadedFiles.length === 0 && (
                 <div
                   onDragOver={(e) => {
                     e.preventDefault();
@@ -2897,7 +2923,8 @@ export const PdfTools: React.FC = () => {
               )}
 
               {/* D. Full ILovePDF 2-Column Split-Screen Workspace (Active Once Files Are Uploaded) */}
-              {activeTool !== 'organize' && activeTool !== 'scan-pdf' && uploadedFiles.length > 0 && (
+              {!['organize', 'scan-pdf', 'unlock', 'merge', 'protect'].includes(activeTool as string) &&
+                uploadedFiles.length > 0 && (
                 <div className="flex flex-col lg:flex-row min-h-[720px] bg-slate-100 dark:bg-surface-950 rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-md relative">
                   {/* Hidden file input for adding more files */}
                   <input
