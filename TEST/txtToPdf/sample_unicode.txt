@@ -1,0 +1,6 @@
+MultiTools PRO — Text to PDF Typography Verification
+“Double quotes” and ‘single quotes’ with em—dash and en–dash.
+• Bullet 1: Client-Side Security
+• Bullet 2: Zero Server Dispatch
+Currencies: $100, €85, £75, ¥12,000, ₹7,500.
+Math: α + β = γ, x ≤ y, a ≥ b, ± 5%.

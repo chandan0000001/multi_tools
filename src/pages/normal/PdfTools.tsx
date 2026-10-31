@@ -13,8 +13,15 @@ import { PositionGridPicker } from '../../components/pdf/PositionGridPicker';
 import { UnlockPdfWorkspace } from '../../components/pdf/tools/unlock';
 import { MergePdfWorkspace } from '../../components/pdf/tools/merge';
 import { ProtectPdfWorkspace } from '../../components/pdf/tools/protect';
+import { JpgToPdfWorkspace } from '../../components/pdf/tools/jpg-to-pdf';
+import { CompressPdfWorkspace } from '../../components/pdf/tools/compress';
 import { renderPdfPageThumbnail } from '../../utils/pdfRenderer';
 import { recordToolActivity } from '../../utils/cacheManager';
+import { sanitizeTextForWinAnsi } from '../../utils/textSanitizer';
+import { parseDocxFile } from '../../utils/docxParser';
+import { convertPdfToImages } from '../../utils/pdfToImage';
+import { convertPdfToMarkdown } from '../../utils/pdfToMarkdown';
+import { convertHtmlToPdf } from '../../utils/htmlToPdf';
 import {
   FileText,
   Merge,
@@ -70,6 +77,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Grid,
+  AlertTriangle,
 } from 'lucide-react';
 
 export type PdfToolId =
@@ -547,16 +555,47 @@ function parseRangeToPageNumbers(rangeStr: string, maxPages: number): number[] {
  * to PNG bytes for safe, guaranteed embedding in PDFDocument without "SOI not found in JPEG" errors.
  */
 async function convertImageFileToPngBytes(file: File): Promise<{ bytes: Uint8Array; width: number; height: number }> {
-  if (file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')) {
+  let srcUrl = '';
+  let toRevoke = '';
+
+  try {
     const ab = await file.arrayBuffer();
-    return { bytes: new Uint8Array(ab), width: 0, height: 0 };
+    if (file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')) {
+      return { bytes: new Uint8Array(ab), width: 0, height: 0 };
+    }
+    const blob = new Blob([ab]);
+    srcUrl = URL.createObjectURL(blob);
+    toRevoke = srcUrl;
+  } catch {
+    // If direct arrayBuffer fails due to mobile temporary permission expiration, try FileReader as fallback
+    try {
+      srcUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+    } catch {
+      srcUrl = URL.createObjectURL(file);
+      toRevoke = srcUrl;
+    }
   }
 
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
     const img = new Image();
+    img.crossOrigin = 'anonymous';
+    const cleanup = () => {
+      if (toRevoke) {
+        try {
+          URL.revokeObjectURL(toRevoke);
+        } catch {
+          // ignore
+        }
+      }
+    };
+
     img.onload = () => {
-      URL.revokeObjectURL(url);
+      cleanup();
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth || img.width || 800;
       canvas.height = img.naturalHeight || img.height || 600;
@@ -576,10 +615,10 @@ async function convertImageFileToPngBytes(file: File): Promise<{ bytes: Uint8Arr
       }, 'image/png');
     };
     img.onerror = () => {
-      URL.revokeObjectURL(url);
+      cleanup();
       reject(new Error(`Failed to decode image file ${file.name}`));
     };
-    img.src = url;
+    img.src = srcUrl;
   });
 }
 
@@ -683,9 +722,10 @@ export const PdfTools: React.FC = () => {
   // Split PDF specific states (matching ILovePDF Images 2 & 4)
   const [splitMainTab, setSplitMainTab] = useState<'range' | 'pages'>('range');
   const [splitRangeMode, setSplitRangeMode] = useState<'custom' | 'fixed'>('custom');
-  const [splitRanges, setSplitRanges] = useState<{ id: string; from: number; to: number }[]>([
+  const [splitRanges, setSplitRanges] = useState<{ id: string; from: number | string; to: number | string }[]>([
     { id: '1', from: 1, to: 1 },
   ]);
+  const [htmlPdfMode, setHtmlPdfMode] = useState<'visual' | 'code'>('visual');
   const [splitMergeAll, setSplitMergeAll] = useState<boolean>(false);
   const [splitExtractMode, setSplitExtractMode] = useState<'all' | 'select'>('select');
   const [splitExtractPagesInput, setSplitExtractPagesInput] = useState<string>('1');
@@ -983,7 +1023,7 @@ export const PdfTools: React.FC = () => {
   const addSplitRange = () => {
     setSplitRanges((prev) => {
       const last = prev[prev.length - 1];
-      const nextFrom = Math.min(docPages.length || 1, (last ? last.to : 0) + 1);
+      const nextFrom = Math.min(docPages.length || 1, (last ? Number(last.to) || 1 : 0) + 1);
       const nextTo = Math.min(docPages.length || 1, nextFrom + 1);
       return [
         ...prev,
@@ -1001,12 +1041,37 @@ export const PdfTools: React.FC = () => {
     setSplitRanges((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const updateSplitRange = (id: string, field: 'from' | 'to', val: number) => {
+  const updateSplitRange = (id: string, field: 'from' | 'to', val: string | number) => {
     setSplitRanges((prev) =>
-      prev.map((r) =>
-        r.id === id ? { ...r, [field]: Math.max(1, Math.min(docPages.length || 999, val)) } : r
-      )
+      prev.map((r) => (r.id === id ? { ...r, [field]: val } : r))
     );
+  };
+
+  const handleSplitRangeBlur = (id: string, field: 'from' | 'to') => {
+    setSplitRanges((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const currentVal = r[field];
+        if (currentVal === '' || isNaN(Number(currentVal))) {
+          return { ...r, [field]: 1 };
+        }
+        return r;
+      })
+    );
+  };
+
+  const getSplitRangeWarning = (rng: { from: number | string; to: number | string }) => {
+    const total = docPages.length || 14;
+    const fStr = String(rng.from).trim();
+    const tStr = String(rng.to).trim();
+    if (!fStr || !tStr) return null;
+    const f = Number(fStr);
+    const t = Number(tStr);
+    if (isNaN(f) || isNaN(t)) return 'Please enter valid page numbers';
+    if (f < 1 || t < 1) return 'Page 0 does not exist. Will start from page 1.';
+    if (f > total || t > total) return `Out of range: document only has ${total} pages.`;
+    if (f > t) return `Inverted range (${f} to ${t}): will extract pages ${t} through ${f}.`;
+    return null;
   };
 
   const toggleSplitPage = (num: number) => {
@@ -1363,9 +1428,13 @@ export const PdfTools: React.FC = () => {
         if (splitMainTab === 'range') {
           const indicesSet = new Set<number>();
           for (const rng of splitRanges) {
-            const start = Math.min(rng.from, rng.to);
-            const end = Math.max(rng.from, rng.to);
-            for (let p = start; p <= Math.min(end, total); p++) {
+            const rawF = Number(rng.from);
+            const rawT = Number(rng.to);
+            const f = isNaN(rawF) || rawF < 1 ? 1 : rawF;
+            const t = isNaN(rawT) || rawT < 1 ? 1 : rawT;
+            const start = Math.max(1, Math.min(f, t));
+            const end = Math.min(total, Math.max(f, t));
+            for (let p = start; p <= end; p++) {
               indicesSet.add(p - 1);
             }
           }
@@ -1958,36 +2027,30 @@ export const PdfTools: React.FC = () => {
         activeTool === 'pdf-to-word' ||
         activeTool === 'pdf-to-excel'
       ) {
-        const textDecoder = new TextDecoder('utf-8', { fatal: false });
-        const rawContent = textDecoder.decode(firstFileBytes);
-        const extracted =
-          rawContent
-            .match(/\(([^)]+)\)\s*Tj/g)
-            ?.map((m) => m.slice(1, -3))
-            .join(' ') ||
-          `Document Content Extracted from ${firstFile.name}\n\nProcessed locally via Multi_Tools Local Engine.\n- Section 1: Document Overview\n- Section 2: Detailed Text & Values\n- Section 3: Summary`;
-
         let blob: Blob;
         let filename: string;
         let mimeType: string;
+        let extracted = '';
 
         if (activeTool === 'pdf-to-markdown') {
-          const mdContent = `# ${firstFile.name.replace('.pdf', '')}\n\n${extracted}\n\n*Converted via Multi_Tools*`;
-          blob = new Blob([new TextEncoder().encode(mdContent)], { type: 'text/markdown' });
-          filename = `${firstFile.name.replace('.pdf', '')}.md`;
+          const mdContent = await convertPdfToMarkdown(firstFileBytes, firstFile.name);
+          extracted = mdContent;
+          blob = new Blob([new TextEncoder().encode(mdContent)], { type: 'text/markdown;charset=utf-8' });
+          filename = `${firstFile.name.replace(/\.pdf$/i, '')}.md`;
           mimeType = 'text/markdown';
         } else if (activeTool === 'pdf-to-word') {
-          const docContent = `<!DOCTYPE html><html><body><h2>${firstFile.name}</h2><p>${extracted.replace(
-            /\n/g,
-            '<br/>'
-          )}</p></body></html>`;
-          blob = new Blob([new TextEncoder().encode(docContent)], { type: 'application/msword' });
-          filename = `${firstFile.name.replace('.pdf', '')}.doc`;
+          const mdContent = await convertPdfToMarkdown(firstFileBytes, firstFile.name);
+          extracted = mdContent;
+          const htmlDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${firstFile.name}</title></head><body><h2>${firstFile.name}</h2><p>${mdContent.replace(/\n/g, '<br/>')}</p></body></html>`;
+          blob = new Blob([new TextEncoder().encode(htmlDoc)], { type: 'application/msword;charset=utf-8' });
+          filename = `${firstFile.name.replace(/\.pdf$/i, '')}.doc`;
           mimeType = 'application/msword';
         } else {
-          const csvContent = `ID,Extracted Content\n1,"${extracted.replace(/"/g, '""')}"`;
-          blob = new Blob([new TextEncoder().encode(csvContent)], { type: 'text/csv' });
-          filename = `${firstFile.name.replace('.pdf', '')}.csv`;
+          const mdContent = await convertPdfToMarkdown(firstFileBytes, firstFile.name);
+          extracted = mdContent;
+          const csvContent = `Page,Extracted Content\n1,"${mdContent.replace(/"/g, '""')}"`;
+          blob = new Blob([new TextEncoder().encode(csvContent)], { type: 'text/csv;charset=utf-8' });
+          filename = `${firstFile.name.replace(/\.pdf$/i, '')}.csv`;
           mimeType = 'text/csv';
         }
 
@@ -2000,7 +2063,7 @@ export const PdfTools: React.FC = () => {
           mimeType,
           extractedText: extracted,
         });
-        showToast('Converted document format!');
+        showToast(`Converted ${firstFile.name} successfully!`);
       }
 
       // 16. PDF TO PDF/A
@@ -2025,7 +2088,8 @@ export const PdfTools: React.FC = () => {
 
       // 17. TXT TO PDF
       else if (activeTool === 'txt-to-pdf') {
-        const textContent = await firstFile.file.text();
+        const rawTextContent = await firstFile.file.text();
+        const textContent = sanitizeTextForWinAnsi(rawTextContent);
         const doc = await PDFDocument.create();
 
         let font;
@@ -2221,44 +2285,25 @@ export const PdfTools: React.FC = () => {
 
       // 20. PDF TO JPG / PNG IMAGE CONVERTER
       else if (activeTool === 'pdf-to-jpg') {
-        const renderedImages: { dataUrl: string; blob: Blob; pageNum: number }[] = [];
-        const limit = Math.min(docPages.length || 1, 10);
+        const result = await convertPdfToImages(firstFileBytes, firstFile.name, {
+          format: pdfToJpgFormat,
+          scale: pdfToJpgDpi === 300 ? 2.5 : 1.8,
+        });
 
-        for (let p = 1; p <= limit; p++) {
-          const thumb = await renderPdfPageThumbnail(firstFileBytes, p, pdfToJpgDpi);
-          if (thumb) {
-            const res = await fetch(thumb);
-            const b = await res.blob();
-            renderedImages.push({ dataUrl: thumb, blob: b, pageNum: p });
-          }
-        }
-
-        if (renderedImages.length === 0) {
-          throw new Error('Could not render document pages to image format');
-        }
-
-        const primary = renderedImages[0];
-        const ext = pdfToJpgFormat === 'png' ? 'png' : 'webp';
-        const downloadUrl = URL.createObjectURL(primary.blob);
-        const filename = `${firstFile.name.replace('.pdf', '')}-page-1.${ext}`;
+        const downloadUrl = URL.createObjectURL(result.primaryBlob);
 
         finishPdfProcessing({
-          blob: primary.blob,
+          blob: result.primaryBlob,
           downloadUrl,
-          filename,
-          size: primary.blob.size,
-          mimeType: primary.blob.type,
-          secondaryDownload:
-            renderedImages.length > 1
-              ? {
-                  blob: renderedImages[renderedImages.length - 1].blob,
-                  downloadUrl: URL.createObjectURL(renderedImages[renderedImages.length - 1].blob),
-                  filename: `${firstFile.name.replace('.pdf', '')}-page-${renderedImages.length}.${ext}`,
-                  label: `Download Page ${renderedImages.length} (${ext.toUpperCase()})`,
-                }
-              : undefined,
+          filename: result.primaryFilename,
+          size: result.primaryBlob.size,
+          mimeType: result.primaryMimeType,
         });
-        showToast(`Converted ${renderedImages.length} page(s) into ${ext.toUpperCase()} image(s)!`);
+        showToast(
+          result.isMultiPage
+            ? `Extracted all ${result.images.length} pages into ZIP archive!`
+            : `Converted page 1 to ${pdfToJpgFormat.toUpperCase()} image!`
+        );
       }
 
       // 21. EDIT PDF (Annotation, Text Note & Official Stamps)
@@ -2349,20 +2394,134 @@ export const PdfTools: React.FC = () => {
         showToast('Flattened and verified PDF form fields!');
       }
 
-      // 23. OFFICE & WEB TO PDF CONVERSIONS (Word, Excel, PPT, HTML)
-      else if (
-        activeTool === 'word-to-pdf' ||
-        activeTool === 'excel-to-pdf' ||
-        activeTool === 'ppt-to-pdf' ||
-        activeTool === 'html-to-pdf'
-      ) {
+      // 23. HTML TO PDF
+      else if (activeTool === 'html-to-pdf') {
+        const rawHtml = await firstFile.file.text();
+        const { pdfBytes, pageCount } = await convertHtmlToPdf(rawHtml, firstFile.name, {
+          mode: htmlPdfMode,
+        });
+
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const downloadUrl = URL.createObjectURL(blob);
+        const filename = `${firstFile.name.replace(/\.[^/.]+$/, '')}.pdf`;
+
+        finishPdfProcessing({
+          blob,
+          downloadUrl,
+          filename,
+          size: blob.size,
+          mimeType: 'application/pdf',
+        });
+        showToast(`Converted ${firstFile.name} to PDF (${pageCount} page${pageCount !== 1 ? 's' : ''})!`);
+      }
+
+      // 24. WORD TO PDF (.DOCX & .DOC)
+      else if (activeTool === 'word-to-pdf') {
+        const fileBuffer = await firstFile.file.arrayBuffer();
+        const paragraphs = await parseDocxFile(fileBuffer);
+
+        const doc = await PDFDocument.create();
+        const font = await doc.embedFont(StandardFonts.Helvetica);
+        const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
+
+        const pageWidth = 595.28;
+        const pageHeight = 841.89;
+        const marginX = 50;
+        const maxCharsPerLine = 72;
+
+        const formattedLines: { text: string; isHeading: boolean; isBold: boolean }[] = [];
+
+        paragraphs.forEach((p) => {
+          const words = p.text.split(/\s+/);
+          let currentLine = '';
+          const lineLimit = p.isHeading ? 55 : maxCharsPerLine;
+
+          for (const word of words) {
+            if ((currentLine + ' ' + word).trim().length <= lineLimit) {
+              currentLine = (currentLine + ' ' + word).trim();
+            } else {
+              if (currentLine) {
+                formattedLines.push({ text: currentLine, isHeading: p.isHeading, isBold: p.isBold });
+              }
+              currentLine = word;
+            }
+          }
+          if (currentLine) {
+            formattedLines.push({ text: currentLine, isHeading: p.isHeading, isBold: p.isBold });
+          }
+          formattedLines.push({ text: '', isHeading: false, isBold: false });
+        });
+
+        if (formattedLines.length === 0) {
+          formattedLines.push({ text: 'Empty Word Document', isHeading: false, isBold: false });
+        }
+
+        let currentPage = doc.addPage([pageWidth, pageHeight]);
+        let curY = 760;
+        let pageIdx = 1;
+
+        currentPage.drawText(sanitizeTextForWinAnsi(firstFile.name.replace(/\.[^/.]+$/, '')), {
+          x: marginX,
+          y: 795,
+          size: 16,
+          font: boldFont,
+          color: rgb(0.12, 0.16, 0.22),
+        });
+        currentPage.drawLine({
+          start: { x: marginX, y: 780 },
+          end: { x: pageWidth - marginX, y: 780 },
+          thickness: 1,
+          color: rgb(0.85, 0.88, 0.92),
+        });
+
+        for (const item of formattedLines) {
+          if (!item.text) {
+            curY -= 10;
+          } else {
+            const fontSize = item.isHeading ? 13 : 10;
+            const itemFont = (item.isHeading || item.isBold) ? boldFont : font;
+            const fontColor = item.isHeading ? rgb(0.1, 0.15, 0.25) : rgb(0.2, 0.22, 0.25);
+
+            currentPage.drawText(item.text, {
+              x: marginX,
+              y: curY,
+              size: fontSize,
+              font: itemFont,
+              color: fontColor,
+            });
+            curY -= item.isHeading ? 18 : 14;
+          }
+
+          if (curY < 60) {
+            currentPage = doc.addPage([pageWidth, pageHeight]);
+            pageIdx++;
+            curY = 780;
+          }
+        }
+
+        const out = await doc.save();
+        const blob = new Blob([out], { type: 'application/pdf' });
+        const downloadUrl = URL.createObjectURL(blob);
+        const filename = `${firstFile.name.replace(/\.[^/.]+$/, '')}.pdf`;
+
+        finishPdfProcessing({
+          blob,
+          downloadUrl,
+          filename,
+          size: blob.size,
+          mimeType: 'application/pdf',
+        });
+        showToast(`Converted ${firstFile.name} to PDF (${pageIdx} page${pageIdx !== 1 ? 's' : ''})!`);
+      }
+
+      // 25. EXCEL & PPT TO PDF
+      else if (activeTool === 'excel-to-pdf' || activeTool === 'ppt-to-pdf') {
         const doc = await PDFDocument.create();
         const page = doc.addPage([595.28, 841.89]);
         const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
         const font = await doc.embedFont(StandardFonts.Helvetica);
 
-        // Render standard document title banner
-        page.drawText(firstFile.name, {
+        page.drawText(sanitizeTextForWinAnsi(firstFile.name), {
           x: 50,
           y: 790,
           size: 18,
@@ -2385,13 +2544,12 @@ export const PdfTools: React.FC = () => {
           color: rgb(0.85, 0.88, 0.92),
         });
 
-        // Content notice
         let fileTextSample = '';
         try {
           const rawText = await firstFile.file.text();
-          fileTextSample = rawText.slice(0, 1500).replace(/[\r\n\t]+/g, ' ');
+          fileTextSample = sanitizeTextForWinAnsi(rawText.slice(0, 3000).replace(/[\r\n\t]+/g, ' '));
         } catch {
-          fileTextSample = `Source file ${firstFile.name} (${(firstFile.size / 1024).toFixed(1)} KB) successfully processed and encoded into PDF document format.`;
+          fileTextSample = `Source file ${sanitizeTextForWinAnsi(firstFile.name)} (${(firstFile.size / 1024).toFixed(1)} KB) successfully processed and encoded into PDF document format.`;
         }
 
         page.drawText('Document Content Preview:', {
@@ -2750,6 +2908,20 @@ export const PdfTools: React.FC = () => {
                 />
               )}
 
+              {activeTool === 'jpg-to-pdf' && (
+                <JpgToPdfWorkspace
+                  initialFiles={uploadedFiles.map((f) => f.file)}
+                  onSuccess={finishPdfProcessing}
+                />
+              )}
+
+              {activeTool === 'compress' && (
+                <CompressPdfWorkspace
+                  initialFile={uploadedFiles[0]?.file}
+                  onSuccess={finishPdfProcessing}
+                />
+              )}
+
               {/* B. Scan to PDF Camera Workspace */}
               {activeTool === 'scan-pdf' && (
                 <div className="p-5 sm:p-8 rounded-3xl bg-white dark:bg-surface-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 text-center">
@@ -2828,7 +3000,7 @@ export const PdfTools: React.FC = () => {
               )}
 
               {/* C. Clean Initial Upload State (Zero Files Uploaded) */}
-              {!['organize', 'scan-pdf', 'unlock', 'merge', 'protect'].includes(activeTool as string) &&
+              {!['organize', 'scan-pdf', 'unlock', 'merge', 'protect', 'jpg-to-pdf', 'compress'].includes(activeTool as string) &&
                 uploadedFiles.length === 0 && (
                 <div
                   onDragOver={(e) => {
@@ -2923,7 +3095,7 @@ export const PdfTools: React.FC = () => {
               )}
 
               {/* D. Full ILovePDF 2-Column Split-Screen Workspace (Active Once Files Are Uploaded) */}
-              {!['organize', 'scan-pdf', 'unlock', 'merge', 'protect'].includes(activeTool as string) &&
+              {!['organize', 'scan-pdf', 'unlock', 'merge', 'protect', 'jpg-to-pdf', 'compress'].includes(activeTool as string) &&
                 uploadedFiles.length > 0 && (
                 <div className="flex flex-col lg:flex-row min-h-[720px] bg-slate-100 dark:bg-surface-950 rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-md relative">
                   {/* Hidden file input for adding more files */}
@@ -3136,18 +3308,35 @@ export const PdfTools: React.FC = () => {
                         <div className="space-y-6">
                           {splitMainTab === 'range' ? (
                             <div className="space-y-5">
-                              {splitRanges.map((rng, rIdx) => (
-                                <div key={rng.id} className="space-y-2">
-                                  <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
-                                    <span>Range {rIdx + 1}</span>
-                                    <span className="text-[11px] text-slate-400">
-                                      Pages {rng.from} to {rng.to}
-                                    </span>
-                                  </div>
-                                  <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-3xl p-5 bg-white/60 dark:bg-surface-900/60 shadow-sm flex flex-wrap gap-4 items-center min-h-[160px]">
-                                    {docPages
-                                      .filter((p) => p.pageNumber >= rng.from && p.pageNumber <= rng.to)
-                                      .map((page) => (
+                              {splitRanges.map((rng, rIdx) => {
+                                const total = docPages.length || 1;
+                                const rawF = Number(rng.from);
+                                const rawT = Number(rng.to);
+                                const validF = isNaN(rawF) || rawF < 1 ? 1 : rawF;
+                                const validT = isNaN(rawT) || rawT < 1 ? 1 : rawT;
+                                const minP = Math.max(1, Math.min(validF, validT));
+                                const maxP = Math.min(total, Math.max(validF, validT));
+                                const warning = getSplitRangeWarning(rng);
+
+                                return (
+                                  <div key={rng.id} className="space-y-2">
+                                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                                      <span>Range {rIdx + 1}</span>
+                                      <div className="flex items-center gap-2">
+                                        {warning && (
+                                          <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                            <AlertTriangle className="w-3 h-3" /> Flagged
+                                          </span>
+                                        )}
+                                        <span className="text-[11px] text-slate-400">
+                                          Pages {minP} to {maxP} ({maxP - minP + 1} page{maxP - minP + 1 !== 1 ? 's' : ''})
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-3xl p-5 bg-white/60 dark:bg-surface-900/60 shadow-sm flex flex-wrap gap-4 items-center min-h-[160px]">
+                                      {docPages
+                                        .filter((p) => p.pageNumber >= minP && p.pageNumber <= maxP)
+                                        .map((page) => (
                                         <div
                                           key={page.pageNumber}
                                           className="aspect-[3/4] w-28 sm:w-32 bg-white dark:bg-surface-800 rounded-xl p-2 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between"
@@ -3172,8 +3361,9 @@ export const PdfTools: React.FC = () => {
                                       ))}
                                   </div>
                                 </div>
-                              ))}
-                            </div>
+                              );
+                            })}
+                          </div>
                           ) : (
                             /* Visual Pages Tab */
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 max-h-[600px] overflow-y-auto pr-1">
@@ -4341,7 +4531,7 @@ export const PdfTools: React.FC = () => {
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
                                       <div>
-                                        <label className="text-[10px] text-slate-400 block mb-0.5">
+                                        <label className="text-[10px] text-slate-400 block mb-0.5 font-medium">
                                           from page
                                         </label>
                                         <input
@@ -4350,27 +4540,40 @@ export const PdfTools: React.FC = () => {
                                           max={docPages.length || 999}
                                           value={rng.from}
                                           onChange={(e) =>
-                                            updateSplitRange(rng.id, 'from', Number(e.target.value))
+                                            updateSplitRange(rng.id, 'from', e.target.value)
                                           }
+                                          onBlur={() => handleSplitRangeBlur(rng.id, 'from')}
                                           className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono"
                                         />
                                       </div>
                                       <div>
-                                        <label className="text-[10px] text-slate-400 block mb-0.5">
+                                        <label className="text-[10px] text-slate-400 block mb-0.5 font-medium">
                                           to
                                         </label>
                                         <input
                                           type="number"
-                                          min={rng.from}
+                                          min={1}
                                           max={docPages.length || 999}
                                           value={rng.to}
                                           onChange={(e) =>
-                                            updateSplitRange(rng.id, 'to', Number(e.target.value))
+                                            updateSplitRange(rng.id, 'to', e.target.value)
                                           }
+                                          onBlur={() => handleSplitRangeBlur(rng.id, 'to')}
                                           className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono"
                                         />
                                       </div>
                                     </div>
+                                    {/* Inline warning badge for invalid or inverted ranges */}
+                                    {(() => {
+                                      const warning = getSplitRangeWarning(rng);
+                                      if (!warning) return null;
+                                      return (
+                                        <div className="mt-2 px-2.5 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-1.5 leading-snug">
+                                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
+                                          <span>{warning}</span>
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 ))}
                               </div>
@@ -5625,6 +5828,46 @@ export const PdfTools: React.FC = () => {
                               <option value={2.0}>High Quality (200 DPI)</option>
                               <option value={2.5}>Ultra Sharp (300 DPI)</option>
                             </select>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* HTML TO PDF SIDEBAR */}
+                      {activeTool === 'html-to-pdf' && (
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              Rendering Mode:
+                            </label>
+                            <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
+                              <button
+                                type="button"
+                                onClick={() => setHtmlPdfMode('visual')}
+                                className={`py-2 px-3 rounded-xl border text-center transition-all ${
+                                  htmlPdfMode === 'visual'
+                                    ? 'border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 font-bold'
+                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                }`}
+                              >
+                                Webpage (Visual)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setHtmlPdfMode('code')}
+                                className={`py-2 px-3 rounded-xl border text-center transition-all ${
+                                  htmlPdfMode === 'code'
+                                    ? 'border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 font-bold'
+                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                }`}
+                              >
+                                Source Code (Full)
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-2">
+                              {htmlPdfMode === 'visual'
+                                ? 'Renders the styled HTML layout, tables, fonts, colors, and graphics into visual PDF pages.'
+                                : 'Prints the complete formatted HTML code across pages with line numbers without truncating any lines.'}
+                            </p>
                           </div>
                         </div>
                       )}
